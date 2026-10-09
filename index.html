@@ -1,0 +1,2212 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>e-presensi-pkmnrr</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- FIX UTAMA & DEFINITIF: Pin ke versi 7.21.4. Versi ini secara bawaan menggunakan mode 'classic' dan TIDAK AKAN menghasilkan error 'Cannot use import statement' -->
+    <script src="https://unpkg.com/@babel/standalone@7.21.4/babel.min.js"></script>
+    
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Firebase Auth & Firestore -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
+    <!-- Excel & QR -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" type="text/javascript"></script>
+
+    <style>
+        body { font-family: 'Poppins', sans-serif; }
+        @media print {
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            body { background: white; padding: 0; }
+            .page-break { page-break-before: always; }
+            .matriks-table th, .matriks-table td { font-size: 10px !important; padding: 4px !important; }
+        }
+        .print-only { display: none; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #38b2ac; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        .loader-sm { border: 3px solid #f3f3f3; border-top: 3px solid white; border-radius: 50%; width: 16px; height: 16px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes slideDown { 0% { transform: translate(-50%, -100%); opacity: 0; } 100% { transform: translate(-50%, 0); opacity: 1; } }
+        .toast-enter { animation: slideDown 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        @keyframes popIn { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+        .popup-enter { animation: popIn 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased">
+    <div id="root"></div>
+
+    <!-- Panggil script menggunakan preset bawaan env & react -->
+    <script type="text/babel" data-presets="env,react">
+        const firebaseConfig = {
+            apiKey: "AIzaSyBRVw0m95OI-C-_myk2JrKq5jzsdC-b1sc",
+            authDomain: "presensi-pkm-nrr.firebaseapp.com",
+            projectId: "presensi-pkm-nrr",
+            storageBucket: "presensi-pkm-nrr.firebasestorage.app",
+            messagingSenderId: "533822808051",
+            appId: "1:533822808051:web:791bff104d608864eabc86"
+        };
+
+        let db;
+        let auth;
+        try {
+            if (!firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
+            }
+            db = firebase.firestore();
+            auth = firebase.auth();
+        } catch (error) {
+            console.error("Firebase error:", error);
+        }
+
+        // Global Toast Notification
+        window.showToast = (msg, type = 'success') => {
+            const event = new CustomEvent('show-toast', { detail: { msg, type } });
+            window.dispatchEvent(event);
+        };
+
+        // Mengganti playBeep dengan Audio eksternal sesuai instruksi
+        const playSuccessSound = () => {
+            try {
+                const audio = new Audio('https://www.image2url.com/r2/default/files/1786027679808-a23809b2-f6d7-4575-bbb1-a94a4d42fcbc.mp3');
+                audio.play().catch(e => console.log("Play audio diblokir oleh browser:", e));
+            } catch(e) { console.log("Audio tidak didukung."); }
+        };
+
+        function hitungJarak(lat1, lon1, lat2, lon2) {
+            const R = 6371e3;
+            const φ1 = lat1 * Math.PI/180;
+            const φ2 = lat2 * Math.PI/180;
+            const Δφ = (lat2-lat1) * Math.PI/180;
+            const Δλ = (lon2-lon1) * Math.PI/180;
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c; 
+        }
+
+        // FIX BUG WAKTU LOKAL: Helper untuk mendapatkan tanggal YYYY-MM-DD sesuai zona waktu lokal perangkat
+        const getTanggalLokal = (d = new Date()) => {
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        const getJadwalHarian = (settings, dateStr) => {
+            const defaultJadwal = { mulaiDatang: "06:00", batasDatang: "07:30", batasAutoAlpa: "09:00", mulaiPulang: "14:00", batasPulang: "15:00" };
+            const d = new Date(dateStr);
+            const day = d.getDay(); 
+            if (day === 0) return { libur: true, ket: "Hari Minggu" };
+            
+            const liburNasional = settings?.liburKhusus?.find(l => l.tanggal === dateStr);
+            if (liburNasional) return { libur: true, ket: liburNasional.ket || "Libur Khusus/Nasional" };
+
+            const j = settings?.jadwalHarian?.[day];
+            if (!j) return { libur: false, ...defaultJadwal }; 
+            return { libur: false, ...j };
+        };
+
+        const LucideIcon = ({ name, className }) => {
+            const spanRef = React.useRef(null);
+            React.useEffect(() => {
+                if (spanRef.current) {
+                    spanRef.current.innerHTML = `<i data-lucide="${name}" class="${className || ''}"></i>`;
+                    if (typeof lucide !== 'undefined') {
+                        try {
+                            lucide.createIcons({ root: spanRef.current });
+                        } catch (e) {
+                            console.warn("Lucide render error:", e);
+                        }
+                    }
+                }
+            }, [name, className]);
+            return <span ref={spanRef} style={{ display: 'contents' }}></span>;
+        };
+
+        class ErrorBoundary extends React.Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+            static getDerivedStateFromError(error) {
+                return { hasError: true, error };
+            }
+            componentDidCatch(error, errorInfo) {
+                console.error("React Error Caught:", error, errorInfo);
+            }
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
+                            <div className="bg-rose-50 text-rose-800 p-8 rounded-3xl max-w-lg shadow-xl border border-rose-200">
+                                <h2 className="text-2xl font-bold mb-3 text-rose-700">Ups, Terjadi Kesalahan Render</h2>
+                                <p className="font-medium text-rose-600 mb-4">{this.state.error?.message}</p>
+                                <button onClick={() => window.location.reload()} className="bg-rose-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-rose-700 shadow-md transition">Muat Ulang Halaman</button>
+                            </div>
+                        </div>
+                    );
+                }
+                return this.props.children;
+            }
+        }
+
+        const App = () => {
+            const [user, setUser] = React.useState(null);
+            const [activeTab, setActiveTab] = React.useState('beranda');
+            
+            const [usersData, setUsersData] = React.useState([]);
+            const [settingsData, setSettingsData] = React.useState(null);
+            const [isDbLoading, setIsDbLoading] = React.useState(true);
+            const [authError, setAuthError] = React.useState('');
+            const [toastMsg, setToastMsg] = React.useState(null);
+
+            React.useEffect(() => {
+                const handleToast = (e) => {
+                    setToastMsg(e.detail);
+                    setTimeout(() => setToastMsg(null), 3500);
+                };
+                window.addEventListener('show-toast', handleToast);
+                return () => window.removeEventListener('show-toast', handleToast);
+            }, []);
+
+            React.useEffect(() => {
+                if (!db || !auth) { 
+                    setAuthError("Gagal memuat layanan Firebase.");
+                    setIsDbLoading(false); 
+                    return; 
+                }
+
+                let unsubSettings = () => {};
+                let unsubUsers = () => {};
+
+                const unsubAuth = auth.onAuthStateChanged((currentUser) => {
+                    if (currentUser) {
+                        setAuthError('');
+                        
+                        unsubSettings = db.collection('pengaturan').doc('global').onSnapshot(doc => {
+                            if (doc.exists) {
+                                setSettingsData(doc.data());
+                            } else {
+                                const baseJadwal = { mulaiDatang: "06:00", batasDatang: "07:30", batasAutoAlpa: "09:00", mulaiPulang: "14:00", batasPulang: "15:00" };
+                                const initJadwal = { 1: baseJadwal, 2: baseJadwal, 3: baseJadwal, 4: baseJadwal, 5: baseJadwal, 6: baseJadwal };
+                                const defaultSettings = {
+                                    sekolah: "UPTD Puskesmas Nangaroro", alamat: "Jl. Kesehatan No. 1", kepsek: "Dr. Budi Santoso", nipKepsek: "198001012005011001",
+                                    lat: -6.2088, lng: 106.8456, radius: 500, logoUrl: "", jadwalHarian: initJadwal, liburKhusus: []
+                                };
+                                db.collection('pengaturan').doc('global').set(defaultSettings);
+                            }
+                        }, err => {
+                            console.error("Settings DB Error:", err);
+                            window.showToast("Gagal mengambil pengaturan (Cek koneksi/kuota Firestore).", "warning");
+                        });
+
+                        unsubUsers = db.collection('users').onSnapshot(snap => {
+                            const data = snap.docs.map(d => {
+                                let docData = d.data();
+                                if (docData.nis && !docData.nip) { docData.nip = docData.nis; }
+                                return { id: d.id, ...docData };
+                            });
+
+                            if (data.length === 0) {
+                                db.collection('users').doc('admin').set({ nip: 'admin', nama: 'Administrator', role: 'admin', password: 'admin' });
+                            } else {
+                                setUsersData(data);
+                            }
+                        }, err => {
+                            console.error("Users DB Error:", err);
+                            window.showToast("Gagal mengambil anggota (Cek koneksi/kuota Firestore).", "warning");
+                        });
+
+                        setTimeout(() => setIsDbLoading(false), 500);
+                    } else {
+                        auth.signInAnonymously().catch((error) => {
+                            console.error("Auth Error:", error);
+                            if (error.code === 'auth/admin-restricted-operation' || error.code === 'auth/operation-not-allowed') {
+                                setAuthError("Fitur Login Anonim (Anonymous) belum diaktifkan di Firebase Console. Silakan aktifkan di menu Authentication -> Sign-in method.");
+                            } else {
+                                setAuthError(error.message);
+                            }
+                            setIsDbLoading(false);
+                        });
+                    }
+                });
+
+                return () => { unsubSettings(); unsubUsers(); unsubAuth(); };
+            }, []);
+
+            if (isDbLoading) {
+                return (
+                    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center">
+                        <div className="loader mb-4"></div>
+                        <p className="text-slate-500 font-medium">Menghubungkan ke Database...</p>
+                    </div>
+                );
+            }
+
+            if (authError) {
+                return (
+                    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
+                        <div className="bg-rose-50 text-rose-800 p-8 rounded-3xl max-w-lg shadow-xl border border-rose-200">
+                            <LucideIcon name="shield-alert" className="w-16 h-16 mx-auto mb-4 text-rose-500" />
+                            <h2 className="text-2xl font-bold mb-3 text-rose-700">Akses Ditolak Firebase</h2>
+                            <p className="font-medium text-rose-600 mb-4">{authError}</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (!user) {
+                return <Login setUser={setUser} users={usersData} settings={settingsData} />;
+            }
+
+            return (
+                <div className="flex h-screen overflow-hidden">
+                    {toastMsg && (
+                        <div className={`toast-enter fixed top-6 left-1/2 transform -translate-x-1/2 z-[100] px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 text-white ${toastMsg.type === 'error' ? 'bg-rose-500' : (toastMsg.type === 'warning' ? 'bg-amber-500' : 'bg-emerald-500')}`}>
+                            <LucideIcon name={toastMsg.type === 'error' ? 'alert-circle' : 'check-circle'} className="w-5 h-5" />
+                            <span className="font-bold text-sm tracking-wide">{toastMsg.msg}</span>
+                        </div>
+                    )}
+
+                    <aside className="w-64 bg-teal-600 text-white flex flex-col hidden md:flex no-print shadow-xl z-10 overflow-y-auto">
+                        <div className="p-6 text-center border-b border-teal-500/50">
+                            {settingsData?.logoUrl ? (
+                                <img src={settingsData.logoUrl} alt="Logo" className="w-20 h-20 object-contain bg-white rounded-2xl mx-auto mb-3 shadow-md p-1" />
+                            ) : (
+                                <div className="w-16 h-16 bg-white rounded-2xl mx-auto flex items-center justify-center text-teal-600 font-bold text-2xl mb-3 shadow-sm transform rotate-3">
+                                    <LucideIcon name="hospital" />
+                                </div>
+                            )}
+                            <h2 className="font-bold text-lg tracking-wide leading-tight">{settingsData?.sekolah}</h2>
+                            <p className="text-xs text-teal-200 capitalize font-medium mt-2">Role: {user.role}</p>
+                        </div>
+                        <nav className="flex-1 p-4 space-y-2">
+                            {user.role === 'admin' ? (
+                                <>
+                                    <MenuBtn icon="layout-dashboard" label="Beranda" active={activeTab === 'beranda'} onClick={() => setActiveTab('beranda')} />
+                                    <MenuBtn icon="users" label="Anggota" active={activeTab === 'anggota'} onClick={() => setActiveTab('anggota')} />
+                                    <MenuBtn icon="clipboard-edit" label="Absen Manual" active={activeTab === 'manual'} onClick={() => setActiveTab('manual')} />
+                                    <MenuBtn icon="qr-code" label="Scan QR" active={activeTab === 'scan'} onClick={() => setActiveTab('scan')} />
+                                    <MenuBtn icon="file-text" label="Laporan" active={activeTab === 'laporan'} onClick={() => setActiveTab('laporan')} />
+                                    <MenuBtn icon="grid" label="Rekap Matriks" active={activeTab === 'matriks'} onClick={() => setActiveTab('matriks')} />
+                                    <MenuBtn icon="settings" label="Pengaturan" active={activeTab === 'pengaturan'} onClick={() => setActiveTab('pengaturan')} />
+                                </>
+                            ) : (
+                                <>
+                                    <MenuBtn icon="layout-dashboard" label="Beranda" active={activeTab === 'beranda'} onClick={() => setActiveTab('beranda')} />
+                                    <MenuBtn icon="map-pin" label="Absensi" active={activeTab === 'absensi'} onClick={() => setActiveTab('absensi')} />
+                                    <MenuBtn icon="history" label="Rekap Absensi" active={activeTab === 'rekap'} onClick={() => setActiveTab('rekap')} />
+                                </>
+                            )}
+                        </nav>
+                    </aside>
+
+                    <main className="flex-1 overflow-y-auto bg-slate-50 relative pb-20 md:pb-0">
+                        <header className="bg-teal-600 md:bg-white text-white md:text-slate-800 p-4 flex justify-between items-center no-print shadow-md md:shadow-sm md:border-b md:border-slate-200 sticky top-0 z-20">
+                            <div className="flex items-center gap-3 md:hidden">
+                                {settingsData?.logoUrl && <img src={settingsData.logoUrl} className="w-8 h-8 object-contain bg-white rounded-lg p-0.5" />}
+                                <h1 className="font-bold line-clamp-1">{settingsData?.sekolah}</h1>
+                            </div>
+                            <div className="hidden md:block">
+                                <h1 className="font-bold text-xl capitalize flex items-center gap-2">
+                                    <LucideIcon name={activeTab === 'beranda' ? 'layout-dashboard' : activeTab} className="w-6 h-6 text-teal-500" />
+                                    {activeTab.replace('-', ' ')}
+                                </h1>
+                            </div>
+                            <div className="flex items-center gap-3 ml-auto">
+                                <div className="flex items-center gap-2 bg-teal-700 md:bg-slate-100 px-3 py-1.5 rounded-full border border-teal-500 md:border-slate-200 shadow-inner">
+                                    <div className="w-6 h-6 bg-teal-500 md:bg-teal-200 rounded-full flex items-center justify-center">
+                                        <LucideIcon name="user" className="w-3 h-3 text-white md:text-teal-700" />
+                                    </div>
+                                    <span className="text-sm font-medium hidden sm:block">{user.nama}</span>
+                                </div>
+                                <button onClick={() => {setUser(null); window.showToast("Berhasil Keluar", "success");}} className="p-2 bg-rose-500 md:bg-rose-100 hover:bg-rose-600 md:hover:bg-rose-200 text-white md:text-rose-600 rounded-full transition shadow-md md:shadow-none" title="Keluar">
+                                    <LucideIcon name="log-out" className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </header>
+
+                        <div className="p-4 md:p-8">
+                            {user.role === 'admin' && activeTab === 'beranda' && <AdminBeranda />}
+                            {user.role === 'admin' && activeTab === 'anggota' && <AdminAnggota users={usersData} settings={settingsData} />}
+                            {user.role === 'admin' && activeTab === 'manual' && <AdminManual users={usersData} settings={settingsData} />}
+                            {user.role === 'admin' && activeTab === 'scan' && <AdminScan users={usersData} settings={settingsData} />}
+                            {user.role === 'admin' && activeTab === 'laporan' && <AdminLaporan settings={settingsData} />}
+                            {user.role === 'admin' && activeTab === 'matriks' && <AdminMatriks users={usersData} settings={settingsData} />}
+                            {user.role === 'admin' && activeTab === 'pengaturan' && <AdminPengaturan settings={settingsData} />}
+
+                            {user.role === 'user' && activeTab === 'beranda' && <UserBeranda />}
+                            {user.role === 'user' && activeTab === 'absensi' && <UserAbsensi user={user} settings={settingsData} users={usersData} />}
+                            {user.role === 'user' && activeTab === 'rekap' && <UserRekap user={user} />}
+                        </div>
+                        
+                        <nav className="md:hidden fixed bottom-0 w-full bg-white border-t flex justify-around p-2 text-xs no-print z-50 overflow-x-auto shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                            {user.role === 'admin' ? (
+                                <>
+                                    <MobileMenu icon="home" label="Beranda" active={activeTab === 'beranda'} onClick={() => setActiveTab('beranda')} />
+                                    <MobileMenu icon="users" label="Anggota" active={activeTab === 'anggota'} onClick={() => setActiveTab('anggota')} />
+                                    <MobileMenu icon="qr-code" label="Scan QR" active={activeTab === 'scan'} onClick={() => setActiveTab('scan')} />
+                                    <MobileMenu icon="file-text" label="Laporan" active={activeTab === 'laporan'} onClick={() => setActiveTab('laporan')} />
+                                    <MobileMenu icon="grid" label="Matriks" active={activeTab === 'matriks'} onClick={() => setActiveTab('matriks')} />
+                                    <MobileMenu icon="settings" label="Pengatur..." active={activeTab === 'pengaturan'} onClick={() => setActiveTab('pengaturan')} />
+                                </>
+                            ) : (
+                                <>
+                                    <MobileMenu icon="home" label="Beranda" active={activeTab === 'beranda'} onClick={() => setActiveTab('beranda')} />
+                                    <MobileMenu icon="map-pin" label="Absen" active={activeTab === 'absensi'} onClick={() => setActiveTab('absensi')} />
+                                    <MobileMenu icon="history" label="Rekap" active={activeTab === 'rekap'} onClick={() => setActiveTab('rekap')} />
+                                </>
+                            )}
+                        </nav>
+                    </main>
+                </div>
+            );
+        };
+
+        const MenuBtn = ({ icon, label, active, onClick }) => (
+            <button onClick={onClick} className={`w-full flex items-center p-3 rounded-xl transition font-medium ${active ? 'bg-white/20 text-white shadow-inner backdrop-blur-sm' : 'text-teal-100 hover:bg-teal-500 hover:text-white'}`}>
+                <LucideIcon name={icon} className="w-5 h-5 mr-3" /> <span className="whitespace-nowrap">{label}</span>
+            </button>
+        );
+
+        const MobileMenu = ({ icon, label, active, onClick }) => (
+            <button onClick={onClick} className={`flex flex-col items-center p-2 min-w-[60px] ${active ? 'text-teal-600' : 'text-slate-400'}`}>
+                <LucideIcon name={icon} className="w-5 h-5 mb-1" /> <span className="font-medium text-[10px] whitespace-nowrap">{label}</span>
+            </button>
+        );
+
+        const Login = ({ setUser, users, settings }) => {
+            const [nip, setNip] = React.useState('');
+            const [password, setPassword] = React.useState('');
+
+            const handleLogin = (e) => {
+                e.preventDefault();
+                const user = users.find(u => (u.nip === nip || u.nis === nip) && u.password === password);
+                if (user) {
+                    setUser(user);
+                    window.showToast(`Selamat datang, ${user.nama}!`, 'success');
+                } else {
+                    window.showToast('NIP/Username atau Password salah!', 'error');
+                }
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center p-4 bg-[#D8F0EE]">
+                    <div className="bg-white/95 backdrop-blur-md p-8 rounded-3xl shadow-2xl w-full max-w-md border border-white/20">
+                        <div className="text-center mb-8">
+                            {settings?.logoUrl ? (
+                                <img src={settings.logoUrl} alt="Logo" className="w-24 h-24 object-contain bg-white rounded-full mx-auto mb-4 shadow-lg p-2 border-4 border-teal-500/30" />
+                            ) : (
+                                <div className="w-20 h-20 bg-[#3EC2B3] rounded-full mx-auto flex items-center justify-center text-white mb-4 shadow-lg border-4 border-teal-500/30">
+                                    <LucideIcon name="hospital" className="w-10 h-10" />
+                                </div>
+                            )}
+                            <h1 className="text-2xl font-bold text-slate-800">Sistem Absensi Pegawai</h1>
+                            <p className="text-slate-500 text-sm mt-1">{settings?.sekolah || 'Silakan login untuk melanjutkan'}</p>
+                        </div>
+                        <form onSubmit={handleLogin} className="space-y-5">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">NIP / Username</label>
+                                <input type="text" value={nip} onChange={(e)=>setNip(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3EC2B3] focus:border-transparent focus:outline-none transition" required />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                                <input type="password" value={password} onChange={(e)=>setPassword(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#3EC2B3] focus:border-transparent focus:outline-none transition" required />
+                            </div>
+                            <button type="submit" className="w-full bg-[#3EC2B3] hover:bg-[#2CA496] text-white p-3.5 rounded-xl font-bold hover:shadow-lg hover:shadow-[#3EC2B3]/30 transition transform hover:-translate-y-0.5">Masuk</button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const AdminBeranda = () => {
+            // Menggunakan helper getTanggalLokal
+            const hariIni = getTanggalLokal();
+            const [filterTanggal, setFilterTanggal] = React.useState(hariIni);
+            const [filterNama, setFilterNama] = React.useState('');
+            const [absensiTerpilih, setAbsensiTerpilih] = React.useState([]);
+            const [isLoading, setIsLoading] = React.useState(false);
+
+            const fetchAbsensi = async () => {
+                setIsLoading(true);
+                try {
+                    const snap = await db.collection('absensi').where('tanggal', '==', filterTanggal).get();
+                    setAbsensiTerpilih(snap.docs.map(d => ({id: d.id, ...d.data()})));
+                } catch (error) {
+                    window.showToast("Gagal memuat log absensi: " + error.message, "error");
+                }
+                setIsLoading(false);
+            };
+
+            React.useEffect(() => {
+                fetchAbsensi();
+            }, [filterTanggal]);
+            
+            const dataTerfilter = absensiTerpilih.filter(a => 
+                a.nama.toLowerCase().includes(filterNama.toLowerCase())
+            );
+
+            const dataDatang = dataTerfilter.filter(a => a.datang !== "");
+            const dataPulang = dataTerfilter.filter(a => a.pulang !== "");
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div>
+                            <h2 className="text-2xl font-bold text-slate-800">Beranda Admin</h2>
+                            <p className="text-slate-500 text-sm">Pantau kehadiran pegawai pada tanggal tertentu.</p>
+                        </div>
+                        <div className="flex gap-2 w-full md:w-auto">
+                            <input type="text" placeholder="Cari nama..." value={filterNama} onChange={(e)=>setFilterNama(e.target.value)} className="p-2 border border-slate-200 rounded-xl shadow-sm flex-1 outline-none focus:ring-2 focus:ring-teal-500" />
+                            <input type="date" value={filterTanggal} onChange={(e)=>setFilterTanggal(e.target.value)} className="p-2 border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                            <button onClick={fetchAbsensi} disabled={isLoading} className="bg-teal-600 text-white px-3 py-2 rounded-xl text-sm font-medium hover:bg-teal-700 transition flex items-center" title="Muat Ulang / Refresh">
+                                <LucideIcon name="refresh-cw" className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                            <div className="p-4 border-b font-bold bg-slate-50 text-teal-900">Log Kehadiran (Datang / Izin)</div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="bg-slate-50 text-slate-500 text-sm border-b">
+                                        <tr><th className="p-4 font-medium">Nama Pegawai</th><th className="p-4 font-medium">Datang</th><th className="p-4 font-medium">Keterangan / Status</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {dataDatang.length === 0 ? <tr><td colSpan="3" className="p-6 text-center text-slate-500">{isLoading ? 'Memuat data...' : 'Belum ada data.'}</td></tr> : dataDatang.map((row, i) => (
+                                            <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                                <td className="p-4 font-medium text-slate-700">{row.nama}</td>
+                                                <td className="p-4 text-emerald-600 font-bold">{row.datang}</td>
+                                                <td className="p-4">
+                                                    <span className="text-xs font-bold mr-1">{row.status}</span>
+                                                    <span className="text-xs text-slate-500">{row.keterangan ? `- ${row.keterangan}` : ''}</span>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                            <div className="p-4 border-b font-bold bg-slate-50 text-teal-900">Log Pulang</div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="bg-slate-50 text-slate-500 text-sm border-b">
+                                        <tr><th className="p-4 font-medium">Nama Pegawai</th><th className="p-4 font-medium">Pulang</th><th className="p-4 font-medium">Keterangan / Status</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {dataPulang.length === 0 ? <tr><td colSpan="3" className="p-6 text-center text-slate-500">{isLoading ? 'Memuat data...' : 'Belum ada data.'}</td></tr> : dataPulang.map((row, i) => (
+                                            <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                                <td className="p-4 font-medium text-slate-700">{row.nama}</td>
+                                                <td className="p-4 text-rose-500 font-bold">{row.pulang}</td>
+                                                <td className="p-4">
+                                                    <span className={`px-3 py-1 text-xs rounded-full font-medium ${row.status === 'Hadir' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                        {row.status}
+                                                    </span>
+                                                    <span className="text-xs text-slate-500 block mt-1">
+                                                        {row.status === 'Hadir' ? (row.keterangan?.includes('Lembur') ? row.keterangan.split(', ').find(k => k.includes('Lembur')) || row.keterangan : 'Pulang Tepat Waktu') : (row.keterangan || '-')}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const AdminAnggota = ({ users, settings }) => {
+            const [isModalOpen, setIsModalOpen] = React.useState(false);
+            const [formData, setFormData] = React.useState({ nip: '', nama: '', role: 'user', password: '' });
+            const [deleteModalOpen, setDeleteModalOpen] = React.useState(false);
+            const [deleteId, setDeleteId] = React.useState(null);
+            const [deleteAllModalOpen, setDeleteAllModalOpen] = React.useState(false);
+
+            const handleSimpanUser = (e) => {
+                e.preventDefault();
+                db.collection('users').doc(formData.nip).set(formData)
+                  .then(() => {
+                      setIsModalOpen(false);
+                      window.showToast("Berhasil menyimpan pengguna", "success");
+                      setFormData({ nip: '', nama: '', role: 'user', password: '' });
+                  })
+                  .catch(error => window.showToast("Error: " + error.message, "error"));
+            };
+
+            const confirmHapus = () => {
+                if (deleteId) {
+                    db.collection('users').doc(deleteId).delete()
+                      .then(() => {
+                          setDeleteModalOpen(false);
+                          setDeleteId(null);
+                          window.showToast("Pengguna dihapus", "success");
+                      })
+                      .catch(error => window.showToast("Error: " + error.message, "error"));
+                }
+            };
+
+            const confirmHapusSemua = () => {
+                const usersToDelete = users.filter(u => u.role === 'user');
+                if (usersToDelete.length === 0) {
+                    window.showToast("Tidak ada data Pegawai untuk dihapus.", "warning");
+                    setDeleteAllModalOpen(false);
+                    return;
+                }
+                Promise.all(usersToDelete.map(u => db.collection('users').doc(u.id).delete()))
+                  .then(() => {
+                      setDeleteAllModalOpen(false);
+                      window.showToast("Semua data Pegawai berhasil dihapus!", "success");
+                  })
+                  .catch(error => window.showToast("Error: " + error.message, "error"));
+            };
+
+            const downloadTemplate = () => {
+                const wsData = [
+                    { NIP: "19800101", Nama: "Budi Santoso", Role: "user", Password: "password123" },
+                    { NIP: "19800102", Nama: "Siti Aminah", Role: "user", Password: "password123" }
+                ];
+                const ws = XLSX.utils.json_to_sheet(wsData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Template_Users");
+                XLSX.writeFile(wb, "Template_Upload_Pegawai.xlsx");
+            };
+
+            const handleUploadExcel = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const bstr = evt.target.result;
+                    const wb = XLSX.read(bstr, { type: 'binary' });
+                    const wsname = wb.SheetNames[0];
+                    const ws = wb.Sheets[wsname];
+                    const data = XLSX.utils.sheet_to_json(ws);
+                    
+                    let count = 0;
+                    data.forEach(row => {
+                        if(row.NIP && row.Nama && row.Role && row.Password) {
+                            db.collection('users').doc(row.NIP.toString()).set({
+                                nip: row.NIP.toString(), nama: row.Nama, role: row.Role.toLowerCase(), password: row.Password.toString()
+                            });
+                            count++;
+                        }
+                    });
+                    window.showToast(`Berhasil memproses ${count} data anggota dari Excel.`, "success");
+                };
+                reader.readAsBinaryString(file);
+            };
+
+            const cetakKartu = (userList) => {
+                if (userList.length === 0) return window.showToast("Tidak ada data untuk dicetak.", "warning");
+                const printWindow = window.open('', '', 'width=900,height=700');
+                
+                let cardsHtml = userList.map(u => `
+                    <div style="width: 54mm; height: 86mm; border: 1px solid #cbd5e1; border-radius: 8px; margin: 5mm; display: inline-block; box-sizing: border-box; text-align: center; position: relative; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #ffffff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); overflow: hidden; vertical-align: top; page-break-inside: avoid;">
+                        <div style="background-color: #38b2ac; color: white; padding: 12px 5px 25px 5px; position: absolute; top: 0; left: 0; right: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
+                            <h4 style="margin: 0; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;">KARTU PEGAWAI</h4>
+                            <p style="margin: 4px 0 0 0; font-size: 9px; line-height: 1.3; font-weight: 500; opacity: 0.9;">${settings?.sekolah || 'Nama Puskesmas'}</p>
+                        </div>
+                        <div style="margin-top: 25mm; position: relative; z-index: 10; background: #fff; border-radius: 12px; width: 32mm; height: 32mm; margin-left: auto; margin-right: auto; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 4px #fff, 0 4px 6px -1px rgba(0,0,0,0.1); -webkit-print-color-adjust: exact; print-color-adjust: exact;">
+                            <img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${u.nip}" alt="QR Code" style="width: 27mm; height: 27mm; margin: 0 auto; border-radius: 4px;" />
+                        </div>
+                        <div style="margin-top: 10px; padding: 0 8px;">
+                            <h3 style="margin: 0 0 3px 0; font-size: 11px; font-weight: 700; color: #1e293b; line-height: 1.2;">${u.nama}</h3>
+                            <p style="margin: 0; font-size: 9px; color: #64748b; font-weight: 600;">NIP. ${u.nip}</p>
+                        </div>
+                        <div style="position: absolute; bottom: 0; left: 0; right: 0; background-color: #f8fafc; padding: 6px; font-size: 7.5px; color: #64748b; border-top: 1px solid #e2e8f0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
+                            Scan QR Untuk Presensi
+                        </div>
+                    </div>
+                `).join('');
+
+                printWindow.document.write(`
+                    <html>
+                    <head>
+                        <title>Cetak Kartu Pegawai</title>
+                        <style>
+                            @page { margin: 10mm; size: A4 portrait; }
+                            body { margin: 0; padding: 0; background-color: #f1f5f9; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                            @media print { body { background-color: transparent; } }
+                            .print-container { display: flex; flex-wrap: wrap; justify-content: center; align-content: flex-start; gap: 0; padding: 0; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="print-container">
+                            ${cardsHtml}
+                        </div>
+                        <script>setTimeout(() => { window.print(); }, 1500);<\/script>
+                    </body>
+                    </html>
+                `);
+                printWindow.document.close();
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <h2 className="text-2xl font-bold text-slate-800">Manajemen Anggota</h2>
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={() => cetakKartu(users.filter(u => u.role === 'user'))} className="bg-amber-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-amber-600 flex items-center transition shadow-sm">
+                                <LucideIcon name="printer" className="w-4 h-4 mr-2" /> Cetak Kartu QR
+                            </button>
+                            <button onClick={() => setDeleteAllModalOpen(true)} className="bg-rose-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-rose-600 flex items-center transition shadow-sm">
+                                <LucideIcon name="trash-2" className="w-4 h-4 mr-2" /> Hapus Semua Pegawai
+                            </button>
+                            <button onClick={downloadTemplate} className="bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-slate-300 flex items-center transition shadow-sm">
+                                <LucideIcon name="download" className="w-4 h-4 mr-2" /> Template
+                            </button>
+                            <label className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-emerald-700 flex items-center transition shadow-md shadow-emerald-200 cursor-pointer">
+                                <LucideIcon name="upload" className="w-4 h-4 mr-2" /> Upload Massal
+                                <input type="file" accept=".xlsx, .xls" onChange={handleUploadExcel} className="hidden" />
+                            </label>
+                            <button onClick={() => { setFormData({ nip: '', nama: '', role: 'user', password: '' }); setIsModalOpen(true); }} className="bg-teal-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-teal-700 flex items-center transition shadow-md shadow-teal-200">
+                                <LucideIcon name="plus" className="w-4 h-4 mr-2" /> Tambah User
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Modal Tambah/Edit */}
+                    {isModalOpen && (
+                        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                            <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl">
+                                <h3 className="text-lg font-bold mb-4 text-slate-800">Data User</h3>
+                                <form onSubmit={handleSimpanUser} className="space-y-4">
+                                    <div><label className="text-xs font-medium text-slate-500 mb-1 block">NIP</label><input type="text" required value={formData.nip} onChange={e=>setFormData({...formData, nip: e.target.value})} className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" /></div>
+                                    <div><label className="text-xs font-medium text-slate-500 mb-1 block">Nama Lengkap</label><input type="text" required value={formData.nama} onChange={e=>setFormData({...formData, nama: e.target.value})} className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" /></div>
+                                    <div>
+                                        <label className="text-xs font-medium text-slate-500 mb-1 block">Role</label>
+                                        <select value={formData.role} onChange={e=>setFormData({...formData, role: e.target.value})} className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500 bg-white">
+                                            <option value="user">User</option>
+                                            <option value="admin">Admin</option>
+                                        </select>
+                                    </div>
+                                    <div><label className="text-xs font-medium text-slate-500 mb-1 block">Password</label><input type="text" required value={formData.password} onChange={e=>setFormData({...formData, password: e.target.value})} className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" /></div>
+                                    <div className="flex justify-end gap-2 mt-6">
+                                        <button type="button" onClick={()=>setIsModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition">Batal</button>
+                                        <button type="submit" className="px-4 py-2 bg-teal-600 text-white rounded-xl font-medium hover:bg-teal-700 transition">Simpan</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Modal Hapus Tunggal */}
+                    {deleteModalOpen && (
+                        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                            <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl text-center">
+                                <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <LucideIcon name="alert-triangle" className="w-8 h-8" />
+                                </div>
+                                <h3 className="text-lg font-bold mb-2 text-slate-800">Hapus Anggota?</h3>
+                                <p className="text-slate-500 text-sm mb-6">Tindakan ini tidak dapat dibatalkan.</p>
+                                <div className="flex justify-center gap-3">
+                                    <button onClick={() => setDeleteModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-medium hover:bg-slate-200 transition">Batal</button>
+                                    <button onClick={confirmHapus} className="px-4 py-2 bg-rose-600 text-white rounded-xl font-medium hover:bg-rose-700 transition">Ya, Hapus</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Modal Hapus Semua */}
+                    {deleteAllModalOpen && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                            <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl text-center border-t-4 border-rose-500">
+                                <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <LucideIcon name="trash-2" className="w-8 h-8" />
+                                </div>
+                                <h3 className="text-lg font-bold mb-2 text-slate-800">Hapus Semua Pegawai?</h3>
+                                <p className="text-slate-500 text-sm mb-6">Tindakan ini akan menghapus <b>SEMUA</b> data dengan peran 'user'. Data tidak dapat dipulihkan.</p>
+                                <div className="flex justify-center gap-3">
+                                    <button onClick={() => setDeleteAllModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-medium hover:bg-slate-200 transition">Batal</button>
+                                    <button onClick={confirmHapusSemua} className="px-4 py-2 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-700 shadow-md shadow-rose-200 transition">Hapus Semua!</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50 text-slate-500 text-sm border-b">
+                                <tr><th className="p-4 font-medium">NIP</th><th className="p-4 font-medium">Nama Lengkap</th><th className="p-4 font-medium">Role</th><th className="p-4 font-medium text-center">Aksi</th></tr>
+                            </thead>
+                            <tbody>
+                                {users.map((u, i) => (
+                                    <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                        <td className="p-4 text-slate-600">{u.nip}</td>
+                                        <td className="p-4 font-medium text-slate-800">{u.nama}</td>
+                                        <td className="p-4"><span className={`px-3 py-1 text-xs rounded-full uppercase font-medium ${u.role === 'admin' ? 'bg-teal-100 text-teal-700' : 'bg-slate-100 text-slate-600'}`}>{u.role}</span></td>
+                                        <td className="p-4 text-center">
+                                            <button onClick={() => { setFormData(u); setIsModalOpen(true); }} className="text-teal-500 hover:text-teal-700 mx-2 transition" title="Edit"><LucideIcon name="edit" className="w-4 h-4" /></button>
+                                            {u.role === 'user' && <button onClick={() => cetakKartu([u])} className="text-amber-500 hover:text-amber-600 mx-2 transition" title="Cetak ID Card"><LucideIcon name="printer" className="w-4 h-4" /></button>}
+                                            <button onClick={() => { setDeleteId(u.id); setDeleteModalOpen(true); }} className="text-rose-500 hover:text-rose-700 mx-2 transition" title="Hapus"><LucideIcon name="trash" className="w-4 h-4" /></button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+
+        const AdminManual = ({ users, settings }) => {
+            // Menggunakan helper getTanggalLokal
+            const hariIni = getTanggalLokal();
+            const [formData, setFormData] = React.useState({
+                nip: '', tanggal: hariIni, jenis: 'Datang', jam: '', status: 'Hadir', keterangan: ''
+            });
+
+            // Custom UI Confirm Modal
+            const [confirmLiburModal, setConfirmLiburModal] = React.useState(null);
+
+            const laksanakanSimpan = async (dataForm) => {
+                const selectedUser = users.find(u => u.nip === dataForm.nip);
+                if(!selectedUser) return;
+                const docId = `${dataForm.tanggal}_${dataForm.nip}`;
+                
+                const docSnap = await db.collection('absensi').doc(docId).get();
+                const existingRecord = docSnap.exists ? docSnap.data() : null;
+
+                if (dataForm.jenis === 'Datang' && existingRecord && existingRecord.datang !== "") {
+                    return window.showToast("Pegawai ini sudah memiliki record absen DATANG.", "error");
+                }
+                if (dataForm.jenis === 'Pulang' && existingRecord && existingRecord.pulang !== "") {
+                    return window.showToast("Pegawai ini sudah memiliki record absen PULANG.", "error");
+                }
+
+                let autoKeterangan = dataForm.keterangan;
+                const jadwalHarian = getJadwalHarian(settings, dataForm.tanggal);
+                let finalStatus = dataForm.status;
+
+                if (dataForm.status === 'Hadir') {
+                    if (dataForm.jenis === 'Datang') {
+                        if (jadwalHarian.batasAutoAlpa && dataForm.jam > jadwalHarian.batasAutoAlpa) {
+                            finalStatus = 'Alpa';
+                            autoKeterangan = autoKeterangan ? `Melebihi batas Auto Alpa (${autoKeterangan})` : "Melebihi batas waktu kehadiran";
+                        } else if (jadwalHarian.batasDatang && dataForm.jam > jadwalHarian.batasDatang) {
+                            const [bJ, bM] = jadwalHarian.batasDatang.split(':').map(Number);
+                            const [cJ, cM] = dataForm.jam.split(':').map(Number);
+                            let terlambatMenit = (cJ * 60 + cM) - (bJ * 60 + bM);
+                            let textTerlambat = terlambatMenit >= 60 ? `Terlambat ${Math.floor(terlambatMenit/60)}j ${terlambatMenit%60}m` : `Terlambat ${terlambatMenit}m`;
+                            autoKeterangan = autoKeterangan ? `${textTerlambat} (${autoKeterangan})` : textTerlambat;
+                        }
+                    } 
+                    else if (dataForm.jenis === 'Pulang') {
+                        let prevKeterangan = existingRecord?.keterangan || "";
+                        if (jadwalHarian.batasPulang && dataForm.jam > jadwalHarian.batasPulang) {
+                            const [bJ, bM] = jadwalHarian.batasPulang.split(':').map(Number);
+                            const [cJ, cM] = dataForm.jam.split(':').map(Number);
+                            let lemburMenit = (cJ * 60 + cM) - (bJ * 60 + bM);
+                            let textLembur = lemburMenit >= 60 ? `Lembur ${Math.floor(lemburMenit/60)}j ${lemburMenit%60}m` : `Lembur ${lemburMenit}m`;
+                            autoKeterangan = prevKeterangan ? `${prevKeterangan}, ${textLembur}` : textLembur;
+                            if (dataForm.keterangan) autoKeterangan += ` (${dataForm.keterangan})`;
+                        } else {
+                            autoKeterangan = prevKeterangan ? prevKeterangan : "";
+                            if (dataForm.keterangan) autoKeterangan += (autoKeterangan ? `, ` : ``) + `(${dataForm.keterangan})`;
+                        }
+                    }
+                }
+
+                let dataToSave = {
+                    tanggal: dataForm.tanggal,
+                    nip: dataForm.nip,
+                    nama: selectedUser.nama,
+                    status: finalStatus,
+                    keterangan: autoKeterangan || (finalStatus !== 'Hadir' ? finalStatus : "Absen Manual Admin"),
+                    jarak: 0
+                };
+
+                if (dataForm.jenis === 'Datang' || finalStatus !== 'Hadir') {
+                    dataToSave.datang = dataForm.jam || "";
+                    if (!existingRecord) dataToSave.pulang = ""; 
+                    if (finalStatus !== 'Hadir') dataToSave.pulang = dataForm.jam || "";
+                } else if (dataForm.jenis === 'Pulang') {
+                    dataToSave.pulang = dataForm.jam || "";
+                    if (!existingRecord) dataToSave.datang = "";
+                    if (existingRecord) dataToSave.status = existingRecord.status; 
+                }
+
+                db.collection('absensi').doc(docId).set(dataToSave, { merge: true })
+                  .then(() => {
+                      window.showToast(`Data Absensi ${dataForm.jenis} Berhasil Disimpan!`, "success");
+                      setFormData({ nip: '', tanggal: hariIni, jenis: 'Datang', jam: '', status: 'Hadir', keterangan: '' });
+                  })
+                  .catch(err => window.showToast("Error: " + err.message, "error"));
+            };
+
+            const handleSimpanManual = (e) => {
+                e.preventDefault();
+                if(!formData.nip) return window.showToast("Pilih Pegawai terlebih dahulu!", "warning");
+                if(!formData.jam && formData.status === 'Hadir') return window.showToast("Jam absensi wajib diisi!", "warning");
+                
+                const jadwalHarian = getJadwalHarian(settings, formData.tanggal);
+                if (jadwalHarian.libur) {
+                    setConfirmLiburModal(jadwalHarian.ket);
+                } else {
+                    laksanakanSimpan(formData);
+                }
+            };
+
+            return (
+                <div className="space-y-6 max-w-2xl">
+                    <div>
+                        <h2 className="text-2xl font-bold text-slate-800">Absensi Manual</h2>
+                        <p className="text-slate-500 text-sm">Input absensi manual untuk pegawai yang terkendala perangkat atau jaringan.</p>
+                    </div>
+
+                    {confirmLiburModal && (
+                        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                            <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl text-center">
+                                <h3 className="text-lg font-bold mb-2 text-amber-600">Peringatan Hari Libur</h3>
+                                <p className="text-slate-600 text-sm mb-6">Tanggal yang dipilih adalah hari libur ({confirmLiburModal}). Tetap ingin menyimpan absen?</p>
+                                <div className="flex justify-center gap-3">
+                                    <button onClick={() => setConfirmLiburModal(null)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-medium">Batal</button>
+                                    <button onClick={() => { setConfirmLiburModal(null); laksanakanSimpan(formData); }} className="px-4 py-2 bg-teal-600 text-white rounded-xl font-medium">Ya, Simpan</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100">
+                        <form onSubmit={handleSimpanManual} className="space-y-5">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                <div>
+                                    <label className="block text-sm font-medium mb-1.5 text-slate-600">Pilih Pegawai</label>
+                                    <select value={formData.nip} onChange={e=>setFormData({...formData, nip: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500 bg-white" required>
+                                        <option value="">-- Pilih Pegawai --</option>
+                                        {users.filter(u => u.role !== 'admin').map(u => (
+                                            <option key={u.nip} value={u.nip}>{u.nama} ({u.nip})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1.5 text-slate-600">Jenis Absen</label>
+                                    <select value={formData.jenis} onChange={e=>setFormData({...formData, jenis: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500 bg-white">
+                                        <option value="Datang">Absen Datang</option>
+                                        <option value="Pulang">Absen Pulang</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1.5 text-slate-600">Tanggal</label>
+                                    <input type="date" value={formData.tanggal} onChange={e=>setFormData({...formData, tanggal: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" required />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1.5 text-slate-600">Status Kehadiran</label>
+                                    <select value={formData.status} onChange={e=>setFormData({...formData, status: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500 bg-white">
+                                        <option value="Hadir">Hadir</option>
+                                        <option value="Sakit">Sakit</option>
+                                        <option value="Izin">Izin</option>
+                                        <option value="Dinas Luar">Dinas Luar</option>
+                                        <option value="Alpa">Alpa</option>
+                                    </select>
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-sm font-medium mb-1.5 text-slate-600">Jam {formData.jenis}</label>
+                                    <input type="time" value={formData.jam} onChange={e=>setFormData({...formData, jam: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1.5 text-slate-600">Keterangan Tambahan (Opsional)</label>
+                                <textarea value={formData.keterangan} onChange={e=>setFormData({...formData, keterangan: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" rows="2" placeholder="Contoh: Lupa bawa HP, HP Rusak, dsb..."></textarea>
+                            </div>
+                            <button type="submit" className="w-full bg-teal-600 text-white p-3.5 rounded-xl font-bold hover:bg-teal-700 transition shadow-lg shadow-teal-200">
+                                Simpan Data Absensi
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const AdminScan = ({ users, settings }) => {
+            const [scanPopup, setScanPopup] = React.useState(null); 
+            const [cameraError, setCameraError] = React.useState('');
+            const [scanMode, setScanMode] = React.useState(null); 
+            
+            const isProcessing = React.useRef(false); 
+            const scannerRef = React.useRef(null); 
+            const modeRef = React.useRef(scanMode);
+
+            const usersRef = React.useRef(users);
+            const settingsRef = React.useRef(settings);
+
+            React.useEffect(() => { usersRef.current = users; }, [users]);
+            React.useEffect(() => { settingsRef.current = settings; }, [settings]);
+            React.useEffect(() => { modeRef.current = scanMode; }, [scanMode]);
+
+            const triggerPopup = (type, title, msg) => {
+                setScanPopup({ type, title, msg });
+                setTimeout(() => {
+                    setScanPopup(null);
+                    isProcessing.current = false;
+                }, 3000);
+            };
+
+            const processScan = async (decodedText) => {
+                if (isProcessing.current) return; 
+                isProcessing.current = true; 
+                
+                // Instruksi: Hapus pemanggilan playBeep() di awal, diganti playSuccessSound() di dalam set()
+
+                const currentUsers = usersRef.current;
+                const currentSettings = settingsRef.current;
+                const currentMode = modeRef.current;
+
+                const user = currentUsers.find(u => u.nip === decodedText);
+                if (!user) {
+                    return triggerPopup('error', 'Gagal!', `NIP ${decodedText} tidak terdaftar!`);
+                }
+
+                const now = new Date();
+                const currentJam = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+                // Menggunakan helper getTanggalLokal
+                const tanggalSekarang = getTanggalLokal(now);
+                const docId = `${tanggalSekarang}_${user.nip}`; 
+                
+                const jadwalHarian = getJadwalHarian(currentSettings, tanggalSekarang);
+                
+                if (jadwalHarian.libur) {
+                    return triggerPopup('error', 'Ditolak!', `Hari ini adalah hari libur (${jadwalHarian.ket}).`);
+                }
+
+                const docSnap = await db.collection('absensi').doc(docId).get();
+                let existingRecord = docSnap.exists ? docSnap.data() : null;
+                
+                let keterangan = "";
+
+                if (currentMode === 'Datang') {
+                    if (existingRecord && existingRecord.datang !== "") {
+                        return triggerPopup('error', 'Ditolak!', `Pegawai ${user.nama} sudah melakukan absen Datang hari ini.`);
+                    }
+                    
+                    if (jadwalHarian.mulaiDatang && currentJam < jadwalHarian.mulaiDatang) {
+                        return triggerPopup('error', 'Belum Diizinkan!', `Absen Datang dibuka jam ${jadwalHarian.mulaiDatang}`);
+                    }
+                    
+                    let isLate = false;
+                    let currentStatus = "Hadir";
+
+                    if (jadwalHarian.batasAutoAlpa && currentJam > jadwalHarian.batasAutoAlpa) {
+                        currentStatus = "Alpa";
+                        keterangan = "Melebihi batas Auto Alpa";
+                    } else if (jadwalHarian.batasDatang && currentJam > jadwalHarian.batasDatang) {
+                        isLate = true;
+                        const [bJ, bM] = jadwalHarian.batasDatang.split(':').map(Number);
+                        const [cJ, cM] = currentJam.split(':').map(Number);
+                        let terlambatMenit = (cJ * 60 + cM) - (bJ * 60 + bM);
+                        keterangan = terlambatMenit >= 60 ? `Terlambat ${Math.floor(terlambatMenit/60)}j ${terlambatMenit%60}m` : `Terlambat ${terlambatMenit}m`;
+                    }
+                    
+                    const dataToSave = { tanggal: tanggalSekarang, nip: user.nip, nama: user.nama, datang: currentJam, pulang: existingRecord?.pulang || "", status: currentStatus, keterangan: keterangan, jarak: 0 };
+                    
+                    db.collection('absensi').doc(docId).set(dataToSave, { merge: true }).then(() => {
+                        playSuccessSound(); 
+                        triggerPopup(currentStatus === 'Alpa' ? 'error' : (isLate ? 'warning' : 'success'), currentStatus === 'Alpa' ? 'Tercatat Alpa' : 'Berhasil Absen Datang', `${user.nama} - ${currentJam}\n${keterangan || 'Tepat Waktu'}`);
+                    });
+
+                } else if (currentMode === 'Pulang') {
+                    if (existingRecord && existingRecord.pulang !== "") {
+                        return triggerPopup('error', 'Ditolak!', `Pegawai ${user.nama} sudah melakukan absen Pulang hari ini.`);
+                    }
+
+                    if (jadwalHarian.mulaiPulang && currentJam < jadwalHarian.mulaiPulang) {
+                        return triggerPopup('error', 'Belum Diizinkan!', `Absen Pulang dibuka jam ${jadwalHarian.mulaiPulang}`);
+                    }
+
+                    let isOvertime = false;
+                    let keteranganPulang = existingRecord?.keterangan || "";
+                    if (jadwalHarian.batasPulang && currentJam > jadwalHarian.batasPulang) {
+                        isOvertime = true;
+                        const [bJ, bM] = jadwalHarian.batasPulang.split(':').map(Number);
+                        const [cJ, cM] = currentJam.split(':').map(Number);
+                        let lemburMenit = (cJ * 60 + cM) - (bJ * 60 + bM);
+                        let textLembur = lemburMenit >= 60 ? `Lembur ${Math.floor(lemburMenit/60)}j ${lemburMenit%60}m` : `Lembur ${lemburMenit}m`;
+                        keteranganPulang = keteranganPulang ? `${keteranganPulang}, ${textLembur}` : textLembur;
+                    }
+
+                    const dataToSave = { tanggal: tanggalSekarang, nip: user.nip, nama: user.nama, datang: existingRecord?.datang || "", pulang: currentJam, status: existingRecord?.status || "Hadir", keterangan: keteranganPulang, jarak: 0 };
+
+                    db.collection('absensi').doc(docId).set(dataToSave, { merge: true }).then(() => {
+                        playSuccessSound(); // Memutar audio sukses ketika data absen Pulang berhasil disimpan
+                        triggerPopup(isOvertime ? 'warning' : 'success', 'Berhasil Absen Pulang', `${user.nama} - ${currentJam}\n${isOvertime ? keteranganPulang : 'Tepat Waktu'}`);
+                    });
+                }
+            };
+
+            React.useEffect(() => {
+                if (!scanMode) return;
+                if (scannerRef.current) return; 
+
+                const html5QrCode = new Html5Qrcode("qr-reader");
+                scannerRef.current = html5QrCode;
+                
+                const startScanner = async () => {
+                    try {
+                        await html5QrCode.start(
+                            { facingMode: "environment" },
+                            { fps: 10, qrbox: { width: 250, height: 250 } },
+                            (decodedText) => processScan(decodedText),
+                            (err) => {}
+                        );
+                    } catch (err) {
+                        try {
+                            await html5QrCode.start(
+                                { facingMode: "user" },
+                                { fps: 10, qrbox: { width: 250, height: 250 } },
+                                (decodedText) => processScan(decodedText),
+                                (err) => {}
+                            );
+                        } catch (err2) {
+                            setCameraError("Akses kamera ditolak oleh aplikasi Android (WebView). Silakan gunakan tombol Kamera Bawaan di bawah.");
+                        }
+                    }
+                };
+
+                setTimeout(startScanner, 300);
+
+                return () => {
+                    if (scannerRef.current) {
+                        if (scannerRef.current.isScanning) {
+                            scannerRef.current.stop().then(() => scannerRef.current.clear()).catch(e => console.error(e));
+                        } else {
+                            scannerRef.current.clear();
+                        }
+                        scannerRef.current = null; 
+                    }
+                };
+            }, [scanMode]);
+
+            const handleFileUpload = (e) => {
+                if (!e.target.files || e.target.files.length === 0) return;
+                const file = e.target.files[0];
+                const html5QrCode = new Html5Qrcode("qr-reader"); 
+                
+                html5QrCode.scanFile(file, true)
+                .then(decodedText => { processScan(decodedText); e.target.value = ''; })
+                .catch(err => { triggerPopup('error', 'Gagal Membaca', 'Pastikan foto fokus dan QR Code terlihat jelas.'); e.target.value = ''; });
+            };
+
+            return (
+                <div className="space-y-6 max-w-xl mx-auto">
+                    <div className="text-center">
+                        <h2 className="text-2xl font-bold text-slate-800">Scan QR Code</h2>
+                        <p className="text-slate-500 text-sm">Arahkan QR Code pada kartu pegawai ke kamera.</p>
+                    </div>
+                    
+                    {!scanMode ? (
+                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <button onClick={() => setScanMode('Datang')} className="p-8 bg-emerald-50 text-emerald-700 hover:bg-emerald-500 hover:text-white rounded-2xl font-bold transition flex flex-col items-center justify-center border border-emerald-200 hover:shadow-lg shadow-emerald-200">
+                                <LucideIcon name="log-in" className="w-10 h-10 mb-3" /> Scan DATANG
+                            </button>
+                            <button onClick={() => setScanMode('Pulang')} className="p-8 bg-rose-50 text-rose-700 hover:bg-rose-500 hover:text-white rounded-2xl font-bold transition flex flex-col items-center justify-center border border-rose-200 hover:shadow-lg shadow-rose-200">
+                                <LucideIcon name="log-out" className="w-10 h-10 mb-3" /> Scan PULANG
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="bg-white p-4 md:p-6 rounded-3xl shadow-sm border border-slate-100 relative overflow-hidden">
+                            <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
+                                <h3 className={`font-bold text-lg ${scanMode === 'Datang' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                    <LucideIcon name={scanMode === 'Datang' ? 'log-in' : 'log-out'} className="w-5 h-5 inline-block mr-2 mb-1" />
+                                    Absen {scanMode}
+                                </h3>
+                                <button onClick={() => setScanMode(null)} className="px-4 py-1.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition">Kembali</button>
+                            </div>
+
+                            {cameraError && (
+                                <div className="p-4 mb-4 bg-rose-100 text-rose-700 rounded-xl text-center font-bold text-sm border border-rose-200">
+                                    <LucideIcon name="video-off" className="w-6 h-6 inline-block mb-2 text-rose-500" /><br/>
+                                    {cameraError}
+                                </div>
+                            )}
+                            
+                            {scanPopup && (
+                                <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 popup-enter">
+                                    <div className={`bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl text-center border-t-4 ${scanPopup.type === 'error' ? 'border-rose-500' : (scanPopup.type === 'warning' ? 'border-amber-500' : 'border-emerald-500')}`}>
+                                        <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${scanPopup.type === 'error' ? 'bg-rose-100 text-rose-600' : (scanPopup.type === 'warning' ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600')}`}>
+                                            <LucideIcon name={scanPopup.type === 'error' ? 'x-circle' : (scanPopup.type === 'warning' ? 'alert-circle' : 'check-circle')} className="w-8 h-8" />
+                                        </div>
+                                        <h3 className="text-xl font-bold mb-2 text-slate-800">{scanPopup.title}</h3>
+                                        <p className="text-slate-600 font-medium whitespace-pre-line">{scanPopup.msg}</p>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            <div id="qr-reader" className="w-full overflow-hidden rounded-2xl bg-slate-50 border-2 border-dashed border-teal-200 mb-4" style={{ minHeight: '300px' }}></div>
+                            
+                            <div className="text-center bg-teal-50 p-4 rounded-2xl border border-teal-100">
+                                <p className="text-xs text-teal-800 font-medium mb-3">Aplikasi memblokir kamera? Gunakan tombol di bawah ini untuk memfoto QR dari kamera bawaan HP Anda:</p>
+                                <label className="bg-teal-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-teal-700 cursor-pointer inline-flex items-center shadow-md transition">
+                                    <LucideIcon name="camera" className="w-4 h-4 mr-2" /> Kamera Bawaan HP
+                                    <input type="file" accept="image/*" capture="environment" onChange={handleFileUpload} className="hidden" />
+                                </label>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const AdminLaporan = ({ settings }) => {
+            // Menggunakan helper getTanggalLokal
+            const hariIni = getTanggalLokal();
+            const [tanggalMulai, setTanggalMulai] = React.useState(hariIni);
+            const [tanggalAkhir, setTanggalAkhir] = React.useState(hariIni);
+            const [filterNama, setFilterNama] = React.useState('');
+            
+            const [absensi, setAbsensi] = React.useState([]);
+            const [isLoading, setIsLoading] = React.useState(false);
+
+            const fetchLaporan = async () => {
+                setIsLoading(true);
+                try {
+                    const snapshot = await db.collection('absensi')
+                        .orderBy('tanggal', 'desc')
+                        .limit(2000)
+                        .get();
+                        
+                    const semuaData = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
+                    
+                    const dataDifilter = semuaData.filter(a => {
+                        return (!tanggalMulai || a.tanggal >= tanggalMulai) && (!tanggalAkhir || a.tanggal <= tanggalAkhir);
+                    });
+                    
+                    setAbsensi(dataDifilter);
+                } catch(e) { 
+                    console.error("Error Detail Firebase:", e);
+                    window.showToast("Error tarik data: " + e.message, "error"); 
+                }
+                setIsLoading(false);
+            };
+
+            const filteredData = absensi.filter(a => a.nama.toLowerCase().includes(filterNama.toLowerCase()));
+            const dataDatang = filteredData.filter(a => a.datang !== "");
+            const dataPulang = filteredData.filter(a => a.pulang !== "");
+
+            const cetakPDF = () => {
+                if (dataDatang.length === 0 && dataPulang.length === 0) {
+                    window.showToast("Tidak ada data untuk dicetak pada rentang tanggal ini.", "warning");
+                    return;
+                }
+                const printWindow = window.open('', '_blank');
+                const logoHtml = settings?.logoUrl ? `<img src="${settings.logoUrl}" style="height: 80px; object-fit: contain; margin-bottom: 10px;" />` : '';
+                
+                const headerHtml = `
+                    <div style="text-align: center; border-bottom: 4px double black; padding-bottom: 15px; margin-bottom: 20px;">
+                        ${logoHtml}
+                        <h1 style="font-size: 20px; font-weight: bold; margin: 0; text-transform: uppercase;">PEMERINTAH KABUPATEN NAGEKEO</h1>
+                        <h2 style="font-size: 18px; font-weight: bold; margin: 0; text-transform: uppercase;">DINAS KESEHATAN</h2>
+                        <h2 style="font-size: 24px; font-weight: bold; margin: 8px 0; text-transform: uppercase; color: #333;">${settings?.sekolah || 'NAMA PUSKESMAS'}</h2>
+                        <p style="font-size: 14px; margin: 0; color: #555;">${settings?.alamat || '-'}</p>
+                    </div>
+                `;
+
+                let tbodyDatang = dataDatang.length === 0 ? `<tr><td colspan="5" style="padding: 10px; text-align: center; border: 1px solid #000;">Tidak ada laporan.</td></tr>` : '';
+                dataDatang.forEach(row => {
+                    tbodyDatang += `
+                        <tr style="page-break-inside: avoid;">
+                            <td style="padding: 8px; border: 1px solid #000; text-align: center;">${row.tanggal}</td>
+                            <td style="padding: 8px; border: 1px solid #000;">${row.nama}</td>
+                            <td style="padding: 8px; border: 1px solid #000; text-align: center;">${row.datang}</td>
+                            <td style="padding: 8px; border: 1px solid #000; text-align: center;">${row.status}</td>
+                            <td style="padding: 8px; border: 1px solid #000;">${row.keterangan || '-'}</td>
+                        </tr>
+                    `;
+                });
+
+                let tbodyPulang = dataPulang.length === 0 ? `<tr><td colspan="5" style="padding: 10px; text-align: center; border: 1px solid #000;">Tidak ada laporan.</td></tr>` : '';
+                dataPulang.forEach(row => {
+                    const ketLabel = row.status === 'Hadir' ? (row.keterangan?.includes('Lembur') ? row.keterangan.split(', ').find(k => k.includes('Lembur')) || row.keterangan : 'Pulang Tepat Waktu') : (row.keterangan || '-');
+                    tbodyPulang += `
+                        <tr style="page-break-inside: avoid;">
+                            <td style="padding: 8px; border: 1px solid #000; text-align: center;">${row.tanggal}</td>
+                            <td style="padding: 8px; border: 1px solid #000;">${row.nama}</td>
+                            <td style="padding: 8px; border: 1px solid #000; text-align: center;">${row.pulang}</td>
+                            <td style="padding: 8px; border: 1px solid #000; text-align: center;">${row.status}</td>
+                            <td style="padding: 8px; border: 1px solid #000;">${ketLabel}</td>
+                        </tr>
+                    `;
+                });
+
+                const htmlContent = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Cetak Laporan Absensi</title>
+                        <style>
+                            @page { margin: 15mm; size: A4 portrait; }
+                            body { font-family: 'Times New Roman', Times, serif; color: #000; background: #fff; margin: 0; padding: 0; font-size: 14px; }
+                            table { width: 100%; border-collapse: collapse; }
+                            th { padding: 10px; border: 1px solid #000; background-color: #f3f4f6; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-weight: bold; text-align: center; }
+                            .report-title { text-align: center; font-size: 18px; font-weight: bold; margin: 20px 0 15px 0; text-transform: uppercase; }
+                            .page-break { page-break-before: always; height: 1px; }
+                            .signature-box { float: right; width: 300px; text-align: center; margin-top: 40px; page-break-inside: avoid; }
+                        </style>
+                    </head>
+                    <body>
+                        <table>
+                            <thead style="display: table-header-group;"><tr><td>${headerHtml}</td></tr></thead>
+                            <tbody>
+                                <tr>
+                                    <td>
+                                        <div class="report-title">LAPORAN KEHADIRAN (DATANG/IZIN)</div>
+                                        <table style="margin-bottom: 30px;">
+                                            <thead><tr><th style="width: 15%;">Tanggal</th><th style="width: 30%;">Nama</th><th style="width: 15%;">Jam Datang</th><th style="width: 15%;">Status</th><th style="width: 25%;">Keterangan</th></tr></thead>
+                                            <tbody>${tbodyDatang}</tbody>
+                                        </table>
+                                        <div class="page-break"></div>
+                                        <div class="report-title">LAPORAN KEHADIRAN PULANG</div>
+                                        <table style="margin-bottom: 30px;">
+                                            <thead><tr><th style="width: 15%;">Tanggal</th><th style="width: 30%;">Nama</th><th style="width: 15%;">Jam Pulang</th><th style="width: 15%;">Status</th><th style="width: 25%;">Keterangan</th></tr></thead>
+                                            <tbody>${tbodyPulang}</tbody>
+                                        </table>
+                                        <div class="signature-box">
+                                            <p style="margin: 0;">Mengetahui,</p>
+                                            <p style="margin: 0 0 80px 0;">Kepala Puskesmas</p>
+                                            <p style="margin: 0; font-weight: bold; text-decoration: underline;">${settings?.kepsek || 'Nama Kepala Puskesmas'}</p>
+                                            <p style="margin: 0;">NIP. ${settings?.nipKepsek || '-'}</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <script>window.onload=()=>{setTimeout(()=>{window.print();},500);};<\/script>
+                    </body>
+                    </html>
+                `;
+
+                printWindow.document.open();
+                printWindow.document.write(htmlContent);
+                printWindow.document.close();
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 no-print">
+                        <h2 className="text-2xl font-bold text-slate-800">Laporan Absensi</h2>
+                        <div className="flex flex-wrap items-center gap-3 bg-white p-2 rounded-xl shadow-sm border border-slate-100 w-full xl:w-auto">
+                            <input type="text" placeholder="Filter nama..." value={filterNama} onChange={(e)=>setFilterNama(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500 flex-1 min-w-[120px]" />
+                            <div className="flex items-center gap-2 border-l border-slate-200 pl-3">
+                                <span className="text-slate-500 text-sm font-medium">Dari:</span>
+                                <input type="date" value={tanggalMulai} onChange={(e)=>setTanggalMulai(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-slate-500 text-sm font-medium">Sampai:</span>
+                                <input type="date" value={tanggalAkhir} onChange={(e)=>setTanggalAkhir(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                            </div>
+                            <button onClick={fetchLaporan} disabled={isLoading} className="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-300 flex items-center transition">
+                                {isLoading ? <div className="loader-sm mr-2 border-slate-500 border-t-transparent"></div> : <LucideIcon name="filter" className="w-4 h-4 mr-2" />} 
+                                Tarik Data
+                            </button>
+                            <button onClick={cetakPDF} className="ml-auto xl:ml-0 bg-teal-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-teal-700 flex items-center shadow-md transition">
+                                <LucideIcon name="printer" className="w-4 h-4 mr-2" /> Cetak PDF
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 w-full">
+                        <div className="text-center border-b-2 border-slate-200 pb-4 mb-6 flex flex-col items-center">
+                            {settings?.logoUrl && <img src={settings.logoUrl} className="h-20 object-contain mb-3" alt="Logo" />}
+                            <h1 className="text-xl font-bold uppercase tracking-wide text-slate-800">PEMERINTAH KABUPATEN NAGEKEO</h1>
+                            <h2 className="text-lg font-bold uppercase tracking-wide text-slate-800">DINAS KESEHATAN</h2>
+                            <h2 className="text-2xl font-bold uppercase mt-2 text-teal-700">{settings?.sekolah}</h2>
+                            <p className="text-sm mt-1 text-slate-600">{settings?.alamat}</p>
+                        </div>
+                        
+                        <h3 className="font-bold text-lg mb-4 mt-4 text-center text-teal-900">PREVIEW LAPORAN KEHADIRAN (DATANG/IZIN)</h3>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse border border-slate-300 mb-8 text-sm md:text-base rounded-lg">
+                                <thead className="bg-slate-100 text-slate-700">
+                                    <tr>
+                                        <th className="p-3 border border-slate-300 font-semibold">Tanggal</th>
+                                        <th className="p-3 border border-slate-300 font-semibold">Nama</th>
+                                        <th className="p-3 border border-slate-300 font-semibold">Jam Datang</th>
+                                        <th className="p-3 border border-slate-300 font-semibold">Status</th>
+                                        <th className="p-3 border border-slate-300 font-semibold">Keterangan</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {dataDatang.length === 0 ? <tr><td colSpan="5" className="p-4 text-center text-slate-500">Tidak ada laporan.</td></tr> : dataDatang.map((row, i) => (
+                                        <tr key={i}>
+                                            <td className="p-3 border border-slate-300">{row.tanggal}</td>
+                                            <td className="p-3 border border-slate-300">{row.nama}</td>
+                                            <td className="p-3 border border-slate-300 text-emerald-600 font-medium">{row.datang}</td>
+                                            <td className="p-3 border border-slate-300">{row.status}</td>
+                                            <td className="p-3 border border-slate-300 text-xs">{row.keterangan || '-'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h3 className="font-bold text-lg mb-4 mt-8 text-center text-teal-900">PREVIEW LAPORAN KEHADIRAN PULANG</h3>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse border border-slate-300 text-sm md:text-base rounded-lg">
+                                <thead className="bg-slate-100 text-slate-700">
+                                    <tr>
+                                        <th className="p-3 border border-slate-300 font-semibold">Tanggal</th>
+                                        <th className="p-3 border border-slate-300 font-semibold">Nama</th>
+                                        <th className="p-3 border border-slate-300 font-semibold">Jam Pulang</th>
+                                        <th className="p-3 border border-slate-300 font-semibold">Status</th>
+                                        <th className="p-3 border border-slate-300 font-semibold">Keterangan</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {dataPulang.length === 0 ? <tr><td colSpan="5" className="p-4 text-center text-slate-500">Tidak ada laporan.</td></tr> : dataPulang.map((row, i) => (
+                                        <tr key={i}>
+                                            <td className="p-3 border border-slate-300">{row.tanggal}</td>
+                                            <td className="p-3 border border-slate-300">{row.nama}</td>
+                                            <td className="p-3 border border-slate-300 text-rose-500 font-medium">{row.pulang}</td>
+                                            <td className="p-3 border border-slate-300">{row.status}</td>
+                                            <td className="p-3 border border-slate-300 text-xs">
+                                                {row.status === 'Hadir' ? (row.keterangan?.includes('Lembur') ? row.keterangan.split(', ').find(k => k.includes('Lembur')) || row.keterangan : 'Pulang Tepat Waktu') : (row.keterangan || '-')}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const AdminMatriks = ({ users, settings }) => {
+            const getBulanTahunIni = () => {
+                const now = new Date();
+                // Menggunakan helper getTanggalLokal
+                return { start: getTanggalLokal(new Date(now.getFullYear(), now.getMonth(), 1)), end: getTanggalLokal(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
+            };
+            const defaultRange = getBulanTahunIni();
+            const [tanggalMulai, setTanggalMulai] = React.useState(defaultRange.start);
+            const [tanggalAkhir, setTanggalAkhir] = React.useState(defaultRange.end);
+            
+            const [absensi, setAbsensi] = React.useState([]);
+            const [isLoading, setIsLoading] = React.useState(false);
+
+            const fetchMatriks = async () => {
+                setIsLoading(true);
+                try {
+                    const snapshot = await db.collection('absensi')
+                        .orderBy('tanggal', 'desc')
+                        .limit(2000)
+                        .get();
+                        
+                    const semuaData = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
+                    
+                    const dataDifilter = semuaData.filter(a => {
+                        return (!tanggalMulai || a.tanggal >= tanggalMulai) && (!tanggalAkhir || a.tanggal <= tanggalAkhir);
+                    });
+                    
+                    setAbsensi(dataDifilter);
+                } catch(e) { 
+                    console.error("Error Detail Firebase:", e);
+                    window.showToast("Error tarik data: " + e.message, "error"); 
+                }
+                setIsLoading(false);
+            };
+
+            const pendidikList = users.filter(u => u.role === 'user');
+            const dateList = [];
+            let curr = new Date(tanggalMulai);
+            const end = new Date(tanggalAkhir);
+            while(curr <= end) {
+                // Menggunakan helper getTanggalLokal
+                dateList.push(getTanggalLokal(curr));
+                curr.setDate(curr.getDate() + 1);
+            }
+
+            const cetakMatriks = () => {
+                const printWindow = window.open('', '_blank');
+                const logoHtml = settings?.logoUrl ? `<img src="${settings.logoUrl}" style="height: 80px; object-fit: contain; margin-bottom: 10px;" />` : '';
+                
+                const htmlContent = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Cetak Rekap Matriks</title>
+                        <style>
+                            @page { margin: 10mm; size: A4 landscape; }
+                            body { font-family: 'Times New Roman', Times, serif; color: #000; background: #fff; margin: 0; padding: 0; font-size: 11px; }
+                            table { width: 100%; border-collapse: collapse; }
+                            th, td { padding: 4px; border: 1px solid #000; text-align: center; }
+                            th { background-color: #f3f4f6; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-weight: bold; }
+                            .nama-guru { text-align: left; white-space: nowrap; }
+                            .bg-gray { background-color: #e5e7eb; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                            .signature-box { float: right; width: 250px; text-align: center; margin-top: 30px; page-break-inside: avoid; }
+                        </style>
+                    </head>
+                    <body>
+                        <table>
+                            <thead style="display: table-header-group;">
+                                <tr>
+                                    <td colspan="${dateList.length + 8}" style="border:none; padding-bottom: 20px;">
+                                        <div style="text-align: center; border-bottom: 4px double black; padding-bottom: 10px;">
+                                            ${logoHtml}
+                                            <h1 style="font-size: 16px; font-weight: bold; margin: 0;">PEMERINTAH KABUPATEN NAGEKEO</h1>
+                                            <h2 style="font-size: 14px; font-weight: bold; margin: 0;">DINAS KESEHATAN</h2>
+                                            <h2 style="font-size: 18px; font-weight: bold; margin: 5px 0;">${settings?.sekolah || 'NAMA PUSKESMAS'}</h2>
+                                            <p style="font-size: 12px; margin: 0;">${settings?.alamat || '-'}</p>
+                                        </div>
+                                        <h3 style="text-align: center; font-size: 14px; margin: 15px 0 5px 0; text-transform: uppercase;">REKAP MATRIKS KEHADIRAN PEGAWAI</h3>
+                                        <p style="text-align: center; margin: 0 0 10px 0;">Periode: ${tanggalMulai} s/d ${tanggalAkhir}</p>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th rowspan="2" style="width: 2%;">No</th>
+                                    <th rowspan="2" style="width: 15%; text-align: left;">Nama Pegawai</th>
+                                    <th colspan="${dateList.length}">Tanggal</th>
+                                    <th colspan="6">Jumlah</th>
+                                </tr>
+                                <tr>
+                                    ${dateList.map(d => {
+                                        const dateObj = new Date(d);
+                                        const isLibur = dateObj.getDay() === 0 || settings?.liburKhusus?.find(l => l.tanggal === d);
+                                        return `<th class="${isLibur ? 'bg-gray' : ''}">${dateObj.getDate()}</th>`;
+                                    }).join('')}
+                                    <th>H</th><th>HT</th><th>S</th><th>I</th><th>A</th><th>DL</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${pendidikList.map((u, i) => {
+                                    let c_H=0, c_HT=0, c_S=0, c_I=0, c_A=0, c_DL=0;
+                                    // Menggunakan helper getTanggalLokal
+                                    const todayStr = getTanggalLokal(new Date());
+                                    
+                                    const colsHtml = dateList.map(d => {
+                                        const dateObj = new Date(d);
+                                        const isLibur = dateObj.getDay() === 0 || settings?.liburKhusus?.find(l => l.tanggal === d);
+                                        if (isLibur) return `<td class="bg-gray"></td>`;
+                                        
+                                        const record = absensi.find(a => a.nip === u.nip && a.tanggal === d && a.datang !== "");
+                                        let mark = "";
+                                        
+                                        if (record) {
+                                            if (record.status === 'Hadir') {
+                                                mark = record.keterangan?.includes('Terlambat') ? 'HT' : 'H';
+                                            } else if (record.status === 'Sakit') mark = 'S';
+                                            else if (record.status === 'Izin') mark = 'I';
+                                            else if (record.status === 'Dinas Luar') mark = 'DL';
+                                            else if (record.status === 'Alpa') mark = 'A';
+                                        } else {
+                                            if (d <= todayStr) mark = 'A';
+                                        }
+                                        
+                                        if (mark==='H') c_H++; else if(mark==='HT') c_HT++; else if(mark==='S') c_S++; else if(mark==='I') c_I++; else if(mark==='A') c_A++; else if(mark==='DL') c_DL++;
+                                        return `<td>${mark}</td>`;
+                                    }).join('');
+                                    
+                                    return `
+                                        <tr>
+                                            <td>${i+1}</td>
+                                            <td class="nama-guru">${u.nama}</td>
+                                            ${colsHtml}
+                                            <td><b>${c_H}</b></td><td><b>${c_HT}</b></td><td><b>${c_S}</b></td><td><b>${c_I}</b></td><td><b>${c_A}</b></td><td><b>${c_DL}</b></td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                        <div class="signature-box">
+                            <p style="margin: 0;">Mengetahui,</p>
+                            <p style="margin: 0 0 60px 0;">Kepala Puskesmas</p>
+                            <p style="margin: 0; font-weight: bold; text-decoration: underline;">${settings?.kepsek || 'Nama Kepala Puskesmas'}</p>
+                            <p style="margin: 0;">NIP. ${settings?.nipKepsek || '-'}</p>
+                        </div>
+                        <script>window.onload=()=>{setTimeout(()=>{window.print();},500)};<\/script>
+                    </body>
+                    </html>
+                `;
+                printWindow.document.open();
+                printWindow.document.write(htmlContent);
+                printWindow.document.close();
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
+                        <h2 className="text-2xl font-bold text-slate-800">Rekap Matriks</h2>
+                        <div className="flex flex-wrap items-center gap-3 bg-white p-2 rounded-xl shadow-sm border border-slate-100">
+                            <div className="flex items-center gap-2 pl-3">
+                                <span className="text-slate-500 text-sm font-medium">Dari:</span>
+                                <input type="date" value={tanggalMulai} onChange={(e)=>setTanggalMulai(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-slate-500 text-sm font-medium">Sampai:</span>
+                                <input type="date" value={tanggalAkhir} onChange={(e)=>setTanggalAkhir(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                            </div>
+                            <button onClick={fetchMatriks} disabled={isLoading} className="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-300 flex items-center transition">
+                                {isLoading ? <div className="loader-sm mr-2 border-slate-500 border-t-transparent"></div> : 'Tarik Data'}
+                            </button>
+                            <button onClick={cetakMatriks} className="bg-teal-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-teal-700 flex items-center shadow-md transition">
+                                <LucideIcon name="printer" className="w-4 h-4 mr-2" /> Cetak Matriks
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 overflow-x-auto matriks-table">
+                        {isLoading ? <div className="flex justify-center p-10"><div className="loader"></div></div> : (
+                            <>
+                                <table className="w-full text-left border-collapse border border-slate-300 text-xs">
+                                    <thead className="bg-slate-100 text-slate-700">
+                                        <tr>
+                                            <th className="p-2 border border-slate-300 text-center" rowSpan="2">No</th>
+                                            <th className="p-2 border border-slate-300" rowSpan="2">Nama Pegawai</th>
+                                            <th className="p-2 border border-slate-300 text-center" colSpan={dateList.length}>Tanggal</th>
+                                            <th className="p-2 border border-slate-300 text-center" colSpan="6">Jumlah</th>
+                                        </tr>
+                                        <tr>
+                                            {dateList.map((d, idx) => {
+                                                const dateObj = new Date(d);
+                                                const isLibur = dateObj.getDay() === 0 || settings?.liburKhusus?.find(l => l.tanggal === d);
+                                                return <th key={idx} className={`p-1 border border-slate-300 text-center ${isLibur ? 'bg-slate-200' : ''}`}>{dateObj.getDate()}</th>
+                                            })}
+                                            <th className="p-1 border border-slate-300 text-center">H</th>
+                                            <th className="p-1 border border-slate-300 text-center">HT</th>
+                                            <th className="p-1 border border-slate-300 text-center">S</th>
+                                            <th className="p-1 border border-slate-300 text-center">I</th>
+                                            <th className="p-1 border border-slate-300 text-center">A</th>
+                                            <th className="p-1 border border-slate-300 text-center">DL</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {pendidikList.length === 0 ? <tr><td colSpan={dateList.length + 8} className="p-4 text-center">Tarik data untuk memuat.</td></tr> : pendidikList.map((u, i) => {
+                                            let c_H=0, c_HT=0, c_S=0, c_I=0, c_A=0, c_DL=0;
+                                            // Menggunakan helper getTanggalLokal
+                                            const todayStr = getTanggalLokal(new Date());
+                                            return (
+                                                <tr key={i}>
+                                                    <td className="p-2 border border-slate-300 text-center">{i+1}</td>
+                                                    <td className="p-2 border border-slate-300 whitespace-nowrap">{u.nama}</td>
+                                                    {dateList.map((d, idx) => {
+                                                        const dateObj = new Date(d);
+                                                        const isLibur = dateObj.getDay() === 0 || settings?.liburKhusus?.find(l => l.tanggal === d);
+                                                        if (isLibur) return <td key={idx} className="p-1 border border-slate-300 bg-slate-200 text-center"></td>;
+                                                        
+                                                        const record = absensi.find(a => a.nip === u.nip && a.tanggal === d && a.datang !== "");
+                                                        let mark = "";
+                                                        if (record) {
+                                                            if (record.status === 'Hadir') mark = record.keterangan?.includes('Terlambat') ? 'HT' : 'H';
+                                                            else if (record.status === 'Sakit') mark = 'S';
+                                                            else if (record.status === 'Izin') mark = 'I';
+                                                            else if (record.status === 'Dinas Luar') mark = 'DL';
+                                                            else if (record.status === 'Alpa') mark = 'A';
+                                                        } else {
+                                                            if (d <= todayStr) mark = 'A';
+                                                        }
+                                                        
+                                                        if (mark==='H') c_H++; else if(mark==='HT') c_HT++; else if(mark==='S') c_S++; else if(mark==='I') c_I++; else if(mark==='A') c_A++; else if(mark==='DL') c_DL++;
+                                                        return <td key={idx} className="p-1 border border-slate-300 text-center font-medium">{mark}</td>;
+                                                    })}
+                                                    <td className="p-1 border border-slate-300 text-center font-bold text-emerald-600">{c_H}</td>
+                                                    <td className="p-1 border border-slate-300 text-center font-bold text-amber-500">{c_HT}</td>
+                                                    <td className="p-1 border border-slate-300 text-center font-bold text-sky-500">{c_S}</td>
+                                                    <td className="p-1 border border-slate-300 text-center font-bold text-teal-500">{c_I}</td>
+                                                    <td className="p-1 border border-slate-300 text-center font-bold text-rose-500">{c_A}</td>
+                                                    <td className="p-1 border border-slate-300 text-center font-bold text-purple-500">{c_DL}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                                <div className="mt-4 text-xs text-slate-500 flex gap-4 flex-wrap">
+                                    <span><b>H:</b> Hadir</span><span><b>HT:</b> Hadir Terlambat</span><span><b>S:</b> Sakit</span><span><b>I:</b> Izin</span><span><b>A:</b> Alpa</span><span><b>DL:</b> Dinas Luar</span>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const AdminPengaturan = ({ settings }) => {
+            const defaultJadwal = { mulaiDatang: "06:00", batasDatang: "07:30", batasAutoAlpa: "09:00", mulaiPulang: "14:00", batasPulang: "15:00" };
+            
+            const [localSettings, setLocalSettings] = React.useState({
+                ...settings,
+                jadwalHarian: settings?.jadwalHarian || { 1: defaultJadwal, 2: defaultJadwal, 3: defaultJadwal, 4: defaultJadwal, 5: defaultJadwal, 6: defaultJadwal },
+                liburKhusus: settings?.liburKhusus || []
+            });
+
+            const [newLiburTgl, setNewLiburTgl] = React.useState('');
+            const [newLiburKet, setNewLiburKet] = React.useState('');
+
+            const handleUploadLogo = (e) => {
+                const file = e.target.files[0];
+                if(file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => setLocalSettings({...localSettings, logoUrl: event.target.result});
+                    reader.readAsDataURL(file);
+                }
+            };
+
+            const tambahLibur = () => {
+                if(!newLiburTgl) return;
+                setLocalSettings({...localSettings, liburKhusus: [...localSettings.liburKhusus, { tanggal: newLiburTgl, ket: newLiburKet }]});
+                setNewLiburTgl(''); setNewLiburKet('');
+            };
+
+            const hapusLibur = (idx) => {
+                const newList = [...localSettings.liburKhusus];
+                newList.splice(idx, 1);
+                setLocalSettings({...localSettings, liburKhusus: newList});
+            };
+
+            const handleJadwalChange = (day, field, val) => {
+                setLocalSettings({
+                    ...localSettings,
+                    jadwalHarian: {
+                        ...localSettings.jadwalHarian,
+                        [day]: { ...localSettings.jadwalHarian[day], [field]: val }
+                    }
+                });
+            };
+
+            const simpanPengaturan = () => {
+                db.collection('pengaturan').doc('global').set(localSettings)
+                  .then(() => window.showToast("Pengaturan Berhasil Disimpan!", "success"))
+                  .catch(err => window.showToast("Error: " + err.message, "error"));
+            };
+
+            const namaHari = { 1: "Senin", 2: "Selasa", 3: "Rabu", 4: "Kamis", 5: "Jumat", 6: "Sabtu" };
+
+            return (
+                <div className="space-y-6 max-w-4xl mx-auto pb-10">
+                    <h2 className="text-2xl font-bold text-slate-800">Pengaturan Sistem</h2>
+                    
+                    <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-5">
+                        <h3 className="font-bold text-teal-900 border-b pb-2">Identitas Puskesmas</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">Nama Puskesmas</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.sekolah} onChange={e=>setLocalSettings({...localSettings, sekolah: e.target.value})} /></div>
+                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">Upload Logo Kop & Aplikasi</label><input type="file" accept="image/*" onChange={handleUploadLogo} className="w-full p-2 border border-slate-200 rounded-xl text-sm bg-slate-50 outline-none" /></div>
+                            <div className="md:col-span-2"><label className="block text-sm font-medium mb-1.5 text-slate-600">Alamat Puskesmas</label><textarea className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.alamat} onChange={e=>setLocalSettings({...localSettings, alamat: e.target.value})} rows="2"></textarea></div>
+                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">Nama Kepala Puskesmas</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.kepsek} onChange={e=>setLocalSettings({...localSettings, kepsek: e.target.value})} /></div>
+                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">NIP Kepala Puskesmas</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.nipKepsek} onChange={e=>setLocalSettings({...localSettings, nipKepsek: e.target.value})} /></div>
+                        </div>
+
+                        <h3 className="font-bold text-teal-900 border-b pb-2 pt-6">Pengaturan Lokasi GPS</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">Koordinat GPS Latitude</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.lat} onChange={e=>setLocalSettings({...localSettings, lat: e.target.value})} /></div>
+                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">Koordinat GPS Longitude</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.lng} onChange={e=>setLocalSettings({...localSettings, lng: e.target.value})} /></div>
+                            <div className="md:col-span-2"><label className="block text-sm font-medium mb-1.5 text-slate-600">Radius Diizinkan Absen (Meter)</label><input type="number" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.radius} onChange={e=>setLocalSettings({...localSettings, radius: e.target.value})} /></div>
+                        </div>
+
+                        <h3 className="font-bold text-teal-900 border-b pb-2 pt-6">Pengaturan Jam Absensi Harian</h3>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse border border-slate-200 text-sm">
+                                <thead className="bg-slate-50">
+                                    <tr>
+                                        <th className="p-3 border border-slate-200">Hari</th>
+                                        <th className="p-3 border border-slate-200">Mulai Datang</th>
+                                        <th className="p-3 border border-slate-200">Batas Datang</th>
+                                        <th className="p-3 border border-slate-200">Batas Auto Alpa</th>
+                                        <th className="p-3 border border-slate-200">Mulai Pulang</th>
+                                        <th className="p-3 border border-slate-200">Batas Pulang</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {[1,2,3,4,5,6].map(day => (
+                                        <tr key={day}>
+                                            <td className="p-2 border border-slate-200 font-medium">{namaHari[day]}</td>
+                                            <td className="p-2 border border-slate-200"><input type="time" className="w-full p-1 border rounded outline-none" value={localSettings.jadwalHarian[day]?.mulaiDatang || ''} onChange={(e)=>handleJadwalChange(day, 'mulaiDatang', e.target.value)} /></td>
+                                            <td className="p-2 border border-slate-200"><input type="time" className="w-full p-1 border rounded outline-none" value={localSettings.jadwalHarian[day]?.batasDatang || ''} onChange={(e)=>handleJadwalChange(day, 'batasDatang', e.target.value)} /></td>
+                                            <td className="p-2 border border-slate-200"><input type="time" className="w-full p-1 border rounded outline-none" value={localSettings.jadwalHarian[day]?.batasAutoAlpa || ''} onChange={(e)=>handleJadwalChange(day, 'batasAutoAlpa', e.target.value)} /></td>
+                                            <td className="p-2 border border-slate-200"><input type="time" className="w-full p-1 border rounded outline-none" value={localSettings.jadwalHarian[day]?.mulaiPulang || ''} onChange={(e)=>handleJadwalChange(day, 'mulaiPulang', e.target.value)} /></td>
+                                            <td className="p-2 border border-slate-200"><input type="time" className="w-full p-1 border rounded outline-none" value={localSettings.jadwalHarian[day]?.batasPulang || ''} onChange={(e)=>handleJadwalChange(day, 'batasPulang', e.target.value)} /></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            <p className="text-xs text-amber-600 mt-2">* Kosongkan jam jika hari tersebut diliburkan.</p>
+                        </div>
+
+                        <h3 className="font-bold text-teal-900 border-b pb-2 pt-6">Hari Libur Khusus / Nasional</h3>
+                        <div className="flex flex-col md:flex-row gap-3">
+                            <input type="date" className="p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={newLiburTgl} onChange={e=>setNewLiburTgl(e.target.value)} />
+                            <input type="text" placeholder="Keterangan (Opsional)" className="p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500 flex-1" value={newLiburKet} onChange={e=>setNewLiburKet(e.target.value)} />
+                            <button onClick={tambahLibur} className="bg-emerald-600 text-white px-5 py-3 rounded-xl hover:bg-emerald-700 font-medium transition shadow-md shadow-emerald-200 whitespace-nowrap"><LucideIcon name="plus" className="w-4 h-4 inline mr-1" /> Tambah Libur</button>
+                        </div>
+                        {localSettings.liburKhusus.length > 0 && (
+                            <ul className="mt-4 space-y-2">
+                                {localSettings.liburKhusus.map((l, idx) => (
+                                    <li key={idx} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm">
+                                        <span><b>{l.tanggal}</b> - {l.ket || 'Libur Nasional'}</span>
+                                        <button onClick={() => hapusLibur(idx)} className="text-rose-500 hover:text-rose-700 p-1"><LucideIcon name="x" className="w-4 h-4" /></button>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                        
+                        <div className="pt-8 flex justify-end">
+                            <button onClick={simpanPengaturan} className="bg-teal-600 text-white px-8 py-3.5 rounded-xl font-bold hover:bg-teal-700 shadow-lg shadow-teal-200 transition text-lg w-full md:w-auto">Simpan Semua Pengaturan</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const UserBeranda = () => {
+             // Menggunakan helper getTanggalLokal
+             const hariIni = getTanggalLokal();
+             const [filterTanggal, setFilterTanggal] = React.useState(hariIni);
+             const [filterNama, setFilterNama] = React.useState('');
+             const [absensiTerpilih, setAbsensiTerpilih] = React.useState([]);
+             const [isLoading, setIsLoading] = React.useState(false);
+
+             const fetchAbsensi = async () => {
+                 setIsLoading(true);
+                 try {
+                     const snap = await db.collection('absensi').where('tanggal', '==', filterTanggal).get();
+                     setAbsensiTerpilih(snap.docs.map(d => ({id: d.id, ...d.data()})));
+                 } catch (error) {
+                     window.showToast("Gagal memuat log absensi: " + error.message, "error");
+                 }
+                 setIsLoading(false);
+             };
+
+             React.useEffect(() => {
+                 fetchAbsensi();
+             }, [filterTanggal]);
+
+             const dataTerfilter = absensiTerpilih.filter(a => a.nama.toLowerCase().includes(filterNama.toLowerCase()));
+             const dataDatang = dataTerfilter.filter(a => a.datang !== "");
+             const dataPulang = dataTerfilter.filter(a => a.pulang !== "");
+
+             return (
+                 <div className="space-y-6">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <h2 className="text-2xl font-bold text-slate-800">Daftar Kehadiran Rekan Kerja</h2>
+                        <div className="flex gap-2 w-full md:w-auto">
+                            <input type="text" placeholder="Cari nama rekan..." value={filterNama} onChange={(e)=>setFilterNama(e.target.value)} className="p-2 border border-slate-200 rounded-xl shadow-sm flex-1 outline-none focus:ring-2 focus:ring-teal-500" />
+                            <input type="date" value={filterTanggal} onChange={(e)=>setFilterTanggal(e.target.value)} className="p-2 border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                            <button onClick={fetchAbsensi} disabled={isLoading} className="bg-teal-600 text-white px-3 py-2 rounded-xl text-sm font-medium hover:bg-teal-700 transition flex items-center" title="Muat Ulang / Refresh">
+                                <LucideIcon name="refresh-cw" className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+                            <div className="p-5 border-b font-bold bg-slate-50 text-teal-900">Log Datang / Izin</div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="bg-slate-50 text-slate-500 text-sm border-b">
+                                        <tr><th className="p-4 font-medium">Nama Pegawai</th><th className="p-4 font-medium">Datang/Status</th><th className="p-4 font-medium">Keterangan</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {dataDatang.length === 0 ? <tr><td colSpan="3" className="p-6 text-center text-slate-500">{isLoading ? 'Memuat data...' : 'Belum ada aktivitas.'}</td></tr> : dataDatang.map((row, i) => (
+                                            <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                                <td className="p-4 font-medium text-slate-800">{row.nama}</td>
+                                                <td className="p-4 text-emerald-600 font-bold">
+                                                    {row.status !== 'Hadir' ? <span className="text-amber-600">{row.status}</span> : row.datang}
+                                                </td>
+                                                <td className="p-4 text-xs text-slate-500">{row.keterangan || '-'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+                            <div className="p-5 border-b font-bold bg-slate-50 text-teal-900">Log Pulang</div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="bg-slate-50 text-slate-500 text-sm border-b">
+                                        <tr><th className="p-4 font-medium">Nama Pegawai</th><th className="p-4 font-medium">Pulang</th><th className="p-4 font-medium">Keterangan</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {dataPulang.length === 0 ? <tr><td colSpan="3" className="p-6 text-center text-slate-500">{isLoading ? 'Memuat data...' : 'Belum ada aktivitas.'}</td></tr> : dataPulang.map((row, i) => (
+                                            <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                                <td className="p-4 font-medium text-slate-800">{row.nama}</td>
+                                                <td className="p-4 text-rose-500 font-bold">{row.pulang}</td>
+                                                <td className="p-4 text-xs text-slate-500">
+                                                    {row.status === 'Hadir' ? (row.keterangan?.includes('Lembur') ? row.keterangan.split(', ').find(k => k.includes('Lembur')) || row.keterangan : 'Pulang Tepat Waktu') : (row.keterangan || '-')}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                 </div>
+             )
+        }
+
+        const UserAbsensi = ({ user, settings, users }) => {
+            const [lokasi, setLokasi] = React.useState(null);
+            const [jarak, setJarak] = React.useState(null);
+            const [loading, setLoading] = React.useState(true);
+            const [statusInfo, setStatusInfo] = React.useState('Mencari lokasi GPS Anda...');
+            
+            const [showIzin, setShowIzin] = React.useState(false);
+            const [izinData, setIzinData] = React.useState({ status: 'Sakit', keterangan: '' });
+            const [bypassMode, setBypassMode] = React.useState(false);
+            const [adminPass, setAdminPass] = React.useState("");
+            const [pendingAction, setPendingAction] = React.useState(null);
+
+            // Menggunakan helper getTanggalLokal
+            const hariIni = getTanggalLokal();
+            const [recordHariIni, setRecordHariIni] = React.useState(null);
+
+            React.useEffect(() => {
+                const unsub = db.collection('absensi').doc(`${hariIni}_${user.nip}`).onSnapshot(doc => {
+                    if (doc.exists) setRecordHariIni(doc.data());
+                }, err => {
+                    console.error("Sinkronisasi absensi error:", err);
+                });
+                return () => unsub();
+            }, [hariIni, user.nip]);
+
+            React.useEffect(() => {
+                if ("geolocation" in navigator) {
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            const userLat = position.coords.latitude;
+                            const userLng = position.coords.longitude;
+                            setLokasi({ lat: userLat, lng: userLng });
+                            
+                            const jrk = hitungJarak(userLat, userLng, settings?.lat, settings?.lng);
+                            setJarak(Math.round(jrk));
+                            setLoading(false);
+                            
+                            if (jrk <= settings?.radius) {
+                                setStatusInfo('Anda berada di dalam area puskesmas. Silakan absen.');
+                            } else {
+                                setStatusInfo(`Anda berada di luar area (${Math.round(jrk)}m dari puskesmas).`);
+                            }
+                        },
+                        (error) => { setLoading(false); setStatusInfo('Gagal mendapatkan lokasi GPS. Pastikan Izin Lokasi diaktifkan.'); },
+                        { enableHighAccuracy: true }
+                    );
+                } else {
+                    setLoading(false); setStatusInfo('Peramban Anda tidak mendukung GPS.');
+                }
+            }, [settings]);
+
+            const executeAbsen = (jenis) => {
+                const now = new Date();
+                const currentJam = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+                let keterangan = "";
+                let docId = `${hariIni}_${user.nip}`; 
+                let dataToSave = {};
+
+                const jadwalHarian = getJadwalHarian(settings, hariIni);
+                if (jadwalHarian.libur) {
+                    return window.showToast(`Ditolak: Hari ini adalah hari libur (${jadwalHarian.ket}).`, "error");
+                }
+
+                if (jenis === 'Datang') {
+                    if (recordHariIni && recordHariIni.datang !== "") return window.showToast("Anda sudah memiliki riwayat absen DATANG hari ini.", "error");
+                    
+                    if (jadwalHarian.mulaiDatang && currentJam < jadwalHarian.mulaiDatang) return window.showToast(`Anda belum diizinkan absensi Datang. Waktu buka: ${jadwalHarian.mulaiDatang}`, "warning");
+                    
+                    let currentStatus = "Hadir";
+                    if (jadwalHarian.batasAutoAlpa && currentJam > jadwalHarian.batasAutoAlpa) {
+                        currentStatus = "Alpa";
+                        keterangan = "Melebihi batas Auto Alpa";
+                        window.showToast(`Absen tercatat, namun Anda berstatus ALPA karena melebihi jam ${jadwalHarian.batasAutoAlpa}`, "error");
+                    } else if (jadwalHarian.batasDatang && currentJam > jadwalHarian.batasDatang) {
+                        const [bJ, bM] = jadwalHarian.batasDatang.split(':').map(Number);
+                        const [cJ, cM] = currentJam.split(':').map(Number);
+                        let terlambatMenit = (cJ * 60 + cM) - (bJ * 60 + bM);
+                        let textTerlambat = terlambatMenit >= 60 ? `Terlambat ${Math.floor(terlambatMenit/60)} jam ${terlambatMenit%60} menit` : `Terlambat ${terlambatMenit} menit`;
+                        keterangan = `Terlambat ${textTerlambat}`;
+                        window.showToast(`Absen Datang Berhasil, namun Anda ${keterangan}`, "warning");
+                    } else {
+                        window.showToast(`Berhasil Absen Datang tepat waktu!\nJarak Anda: ${jarak} meter.`, "success");
+                    }
+
+                    dataToSave = { tanggal: hariIni, nip: user.nip, nama: user.nama, datang: currentJam, pulang: "", status: currentStatus, keterangan: keterangan, jarak: jarak };
+                
+                } else if (jenis === 'Pulang') {
+                    if (recordHariIni && recordHariIni.pulang !== "") return window.showToast("Anda sudah melakukan Absen PULANG hari ini.", "error");
+                    
+                    if (jadwalHarian.mulaiPulang && currentJam < jadwalHarian.mulaiPulang) return window.showToast(`Anda belum diizinkan absensi Pulang. Waktu buka: ${jadwalHarian.mulaiPulang}`, "warning");
+                    
+                    let keteranganPulang = recordHariIni?.keterangan || "";
+                    if (jadwalHarian.batasPulang && currentJam > jadwalHarian.batasPulang) {
+                        const [bJ, bM] = jadwalHarian.batasPulang.split(':').map(Number);
+                        const [cJ, cM] = currentJam.split(':').map(Number);
+                        let lemburMenit = (cJ * 60 + cM) - (bJ * 60 + bM);
+                        let textLembur = lemburMenit >= 60 ? `Lembur ${Math.floor(lemburMenit/60)} jam ${lemburMenit%60} menit` : `Lembur ${lemburMenit} menit`;
+                        keteranganPulang = keteranganPulang ? `${keteranganPulang}, ${textLembur}` : textLembur;
+                        window.showToast(`Berhasil Absen Pulang!\n${textLembur}`, "success");
+                    } else {
+                        window.showToast(`Berhasil Absen Pulang!\nJarak Anda: ${jarak} meter.`, "success");
+                    }
+
+                    if (recordHariIni) {
+                        db.collection('absensi').doc(docId).update({ pulang: currentJam, keterangan: keteranganPulang });
+                        localStorage.setItem('device_absen_data', JSON.stringify({ tanggal: hariIni, nip: user.nip }));
+                        setPendingAction(null);
+                        setBypassMode(false);
+                        return;
+                    } else {
+                        dataToSave = { tanggal: hariIni, nip: user.nip, nama: user.nama, datang: "", pulang: currentJam, status: "Hadir", keterangan: keteranganPulang, jarak: jarak };
+                    }
+                }
+
+                db.collection('absensi').doc(docId).set(dataToSave, { merge: true });
+                localStorage.setItem('device_absen_data', JSON.stringify({ tanggal: hariIni, nip: user.nip }));
+                setPendingAction(null);
+                setBypassMode(false);
+            };
+
+            const prosesAbsen = (jenis) => {
+                const deviceData = JSON.parse(localStorage.getItem('device_absen_data') || '{}');
+                if (deviceData.tanggal === hariIni && deviceData.nip !== user.nip && !bypassMode) {
+                    setPendingAction(jenis); 
+                    return;
+                }
+                executeAbsen(jenis);
+            };
+
+            const handleBypassSubmit = (e) => {
+                e.preventDefault();
+                const adminValid = users.find(u => u.role === 'admin' && u.password === adminPass);
+                if (!adminValid) {
+                    window.showToast("Password Admin salah!", "error");
+                } else {
+                    setBypassMode(true);
+                    executeAbsen(pendingAction);
+                }
+            };
+
+            const prosesIzin = (e) => {
+                e.preventDefault();
+                const now = new Date();
+                const currentJam = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+                let docId = `${hariIni}_${user.nip}`; 
+                
+                if (recordHariIni && recordHariIni.datang !== "") return window.showToast("Anda sudah melakukan absensi/izin untuk hari ini.", "error");
+
+                const dataToSave = { 
+                    tanggal: hariIni, nip: user.nip, nama: user.nama, datang: currentJam, pulang: currentJam, 
+                    status: izinData.status, keterangan: izinData.keterangan, jarak: 0 
+                };
+
+                db.collection('absensi').doc(docId).set(dataToSave, { merge: true })
+                    .then(() => {
+                        window.showToast(`Pengajuan ${izinData.status} berhasil disimpan!`, "success");
+                        setShowIzin(false);
+                        setIzinData({ status: 'Sakit', keterangan: '' });
+                    }).catch(err => window.showToast("Error: " + err.message, "error"));
+            };
+
+            const isDiArea = jarak !== null && jarak <= settings?.radius;
+
+            return (
+                <div className="space-y-6 max-w-lg mx-auto mt-4 md:mt-10">
+                    
+                    {/* Modal Bypass Perangkat Ganda */}
+                    {pendingAction && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                            <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl text-center border-t-4 border-amber-500">
+                                <LucideIcon name="shield-alert" className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+                                <h3 className="text-lg font-bold mb-2 text-slate-800">Peringatan Perangkat Ganda</h3>
+                                <p className="text-slate-600 text-sm mb-4">Perangkat (HP/Laptop) ini sudah digunakan untuk absensi oleh pegawai lain hari ini. Masukkan Password Admin untuk memberi izin.</p>
+                                <form onSubmit={handleBypassSubmit} className="space-y-3">
+                                    <input type="password" placeholder="Password Admin..." required value={adminPass} onChange={e=>setAdminPass(e.target.value)} className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-center" />
+                                    <div className="flex gap-2 justify-center pt-2">
+                                        <button type="button" onClick={() => {setPendingAction(null); setAdminPass('');}} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl">Batal</button>
+                                        <button type="submit" className="px-4 py-2 bg-amber-500 text-white rounded-xl font-bold">Izinkan Absen</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="bg-white p-8 rounded-3xl shadow-lg border border-slate-100 text-center relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-2 bg-teal-500"></div>
+                        <div className="w-20 h-20 bg-teal-50 text-teal-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                            <LucideIcon name="map-pin" className="w-10 h-10" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-slate-800 mb-2">Presensi GPS</h2>
+                        
+                        {loading ? (
+                            <div className="flex justify-center my-6"><div className="loader"></div></div>
+                        ) : (
+                            <div className={`p-4 rounded-xl text-sm mb-8 ${isDiArea ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                                <p className="font-bold">{statusInfo}</p>
+                                {jarak !== null && <p className="mt-1 opacity-80">Batas radius puskesmas: {settings?.radius}m</p>}
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <button onClick={() => prosesAbsen('Datang')} disabled={!isDiArea || loading} className={`p-5 rounded-2xl font-bold flex flex-col items-center justify-center transition ${isDiArea ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-200' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}>
+                                <LucideIcon name="log-in" className="mb-3 w-6 h-6" /> Absen Datang
+                            </button>
+                            <button onClick={() => prosesAbsen('Pulang')} disabled={!isDiArea || loading} className={`p-5 rounded-2xl font-bold flex flex-col items-center justify-center transition ${isDiArea ? 'bg-teal-500 hover:bg-teal-600 text-white shadow-lg shadow-teal-200' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}>
+                                <LucideIcon name="log-out" className="mb-3 w-6 h-6" /> Absen Pulang
+                            </button>
+                        </div>
+
+                        <div className="mt-6 pt-6 border-t border-slate-100">
+                            {!showIzin ? (
+                                <button onClick={() => setShowIzin(true)} className="w-full p-4 rounded-2xl font-bold flex flex-col items-center justify-center transition bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200 shadow-sm">
+                                    <LucideIcon name="clipboard-edit" className="mb-2 w-6 h-6" />
+                                    Ajukan Izin / Sakit / Dinas Luar
+                                </button>
+                            ) : (
+                                <form onSubmit={prosesIzin} className="bg-slate-50 p-5 rounded-2xl border border-slate-200 text-left space-y-4">
+                                    <h3 className="font-bold text-slate-700 flex items-center">
+                                        <LucideIcon name="file-text" className="w-4 h-4 mr-2 text-amber-500" /> Formulir Pengajuan
+                                    </h3>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Status Kehadiran</label>
+                                        <select value={izinData.status} onChange={e => setIzinData({...izinData, status: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 bg-white text-sm" required>
+                                            <option value="Sakit">Sakit</option>
+                                            <option value="Izin">Izin</option>
+                                            <option value="Dinas Luar">Dinas Luar</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Keterangan / Alasan</label>
+                                        <textarea required value={izinData.keterangan} onChange={e => setIzinData({...izinData, keterangan: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-sm" rows="3" placeholder="Tuliskan alasan lengkap..."></textarea>
+                                    </div>
+                                    <div className="flex gap-3 pt-2">
+                                        <button type="button" onClick={() => setShowIzin(false)} className="flex-1 p-2.5 bg-slate-200 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-300 transition">Batal</button>
+                                        <button type="submit" className="flex-1 p-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 shadow-md shadow-amber-200 transition">Kirim Pengajuan</button>
+                                    </div>
+                                </form>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const UserRekap = ({ user }) => {
+            // Menggunakan helper getTanggalLokal
+            const hariIni = getTanggalLokal();
+            const [tanggalMulai, setTanggalMulai] = React.useState(hariIni);
+            const [tanggalAkhir, setTanggalAkhir] = React.useState(hariIni);
+            
+            const [rekapKu, setRekapKu] = React.useState([]);
+            const [isLoading, setIsLoading] = React.useState(false);
+
+            // OPTIMASI: Tarik data manual dengan .get() lalu filter JS
+            const fetchRekap = async () => {
+                setIsLoading(true);
+                try {
+                    const snapshot = await db.collection('absensi')
+                        .where('nip', '==', user.nip)
+                        .get();
+                    
+                    const semuaData = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
+                    
+                    const dataDifilter = semuaData.filter(a => {
+                        return (!tanggalMulai || a.tanggal >= tanggalMulai) && (!tanggalAkhir || a.tanggal <= tanggalAkhir);
+                    });
+
+                    // Kita sort secara manual di browser agar tidak butuh buat Index di Firebase Console
+                    const sortedData = dataDifilter.sort((a, b) => new Date(b.tanggal) - new Date(a.tanggal));
+                    
+                    setRekapKu(sortedData);
+                } catch(e) { 
+                    console.error("Error Firebase:", e);
+                    window.showToast("Error: " + e.message, "error"); 
+                }
+                setIsLoading(false);
+            };
+
+            const dataDatang = rekapKu.filter(a => a.datang !== "");
+            const dataPulang = rekapKu.filter(a => a.pulang !== "");
+
+            return (
+                 <div className="space-y-6">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <h2 className="text-2xl font-bold text-slate-800">Rekap Absensi Saya</h2>
+                        <div className="flex gap-2 bg-white p-2 rounded-xl shadow-sm border border-slate-100 items-center w-full md:w-auto">
+                            <span className="text-sm text-slate-500 font-medium pl-2 hidden md:block">Dari:</span>
+                            <input type="date" value={tanggalMulai} onChange={(e)=>setTanggalMulai(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500 flex-1 md:w-auto" />
+                            <span className="text-sm text-slate-500 font-medium pl-2 hidden md:block">Sampai:</span>
+                            <input type="date" value={tanggalAkhir} onChange={(e)=>setTanggalAkhir(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500 flex-1 md:w-auto" />
+                            <button onClick={fetchRekap} disabled={isLoading} className="bg-teal-600 text-white px-4 py-2 mr-2 rounded-lg text-sm font-medium hover:bg-teal-700 flex items-center">
+                                {isLoading ? <div className="loader-sm border-white border-t-transparent mr-2"></div> : <LucideIcon name="search" className="w-4 h-4 mr-1" />}
+                                Cari
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden mb-6">
+                        <div className="p-5 border-b font-bold bg-slate-50 text-teal-900">Rekap Datang / Izin</div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-slate-50 text-slate-500 text-sm border-b">
+                                    <tr><th className="p-4 font-medium">Tanggal</th><th className="p-4 font-medium">Jam Datang</th><th className="p-4 font-medium">Status</th><th className="p-4 font-medium">Keterangan</th></tr>
+                                </thead>
+                                <tbody>
+                                    {dataDatang.length === 0 ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Klik 'Cari' untuk memuat data.</td></tr> : dataDatang.map((row, i) => (
+                                        <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                            <td className="p-4 text-slate-700">{row.tanggal}</td>
+                                            <td className="p-4 text-emerald-600 font-bold">{row.status !== 'Hadir' ? '-' : row.datang}</td>
+                                            <td className="p-4">
+                                                <span className={`px-3 py-1 text-xs rounded-full font-medium ${row.status === 'Hadir' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                    {row.status}
+                                                </span>
+                                            </td>
+                                            <td className="p-4 text-sm text-slate-500">{row.keterangan || '-'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+                        <div className="p-5 border-b font-bold bg-slate-50 text-teal-900">Rekap Pulang</div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-slate-50 text-slate-500 text-sm border-b">
+                                    <tr><th className="p-4 font-medium">Tanggal</th><th className="p-4 font-medium">Jam Pulang</th><th className="p-4 font-medium">Status</th><th className="p-4 font-medium">Keterangan</th></tr>
+                                </thead>
+                                <tbody>
+                                    {dataPulang.length === 0 ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Klik 'Cari' untuk memuat data.</td></tr> : dataPulang.map((row, i) => (
+                                        <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                            <td className="p-4 text-slate-700">{row.tanggal}</td>
+                                            <td className="p-4 text-rose-500 font-bold">{row.pulang}</td>
+                                            <td className="p-4">
+                                                <span className={`px-3 py-1 text-xs rounded-full font-medium ${row.status === 'Hadir' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                    {row.status}
+                                                </span>
+                                            </td>
+                                            <td className="p-4 text-sm text-slate-500">
+                                                {row.status === 'Hadir' ? (row.keterangan?.includes('Lembur') ? row.keterangan.split(', ').find(k => k.includes('Lembur')) || row.keterangan : 'Pulang Tepat Waktu') : (row.keterangan || '-')}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                 </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(
+            <ErrorBoundary>
+                <App />
+            </ErrorBoundary>
+        );
+    </script>
+</body>
+</html>
