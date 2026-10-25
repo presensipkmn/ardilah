@@ -201,7 +201,8 @@
                                 const initJadwal = { 1: baseJadwal, 2: baseJadwal, 3: baseJadwal, 4: baseJadwal, 5: baseJadwal, 6: baseJadwal };
                                 const defaultSettings = {
                                     sekolah: "UPTD Puskesmas Nangaroro", alamat: "Jl. Kesehatan No. 1", kepsek: "Dr. Budi Santoso", nipKepsek: "198001012005011001",
-                                    lat: -6.2088, lng: 106.8456, radius: 500, logoUrl: "", jadwalHarian: initJadwal, liburKhusus: []
+                                    lat: -6.2088, lng: 106.8456, radius: 500, logoUrl: "", jadwalHarian: initJadwal, liburKhusus: [],
+                                    jadwalPiket: { mulaiDatang: "18:00", batasDatang: "20:00", mulaiPulang: "06:00", batasPulang: "08:00" } // TAMBAHAN DEFAULT JADWAL PIKET
                                 };
                                 db.collection('pengaturan').doc('global').set(defaultSettings);
                             }
@@ -297,9 +298,16 @@
                                     <MenuBtn icon="users" label="Anggota" active={activeTab === 'anggota'} onClick={() => setActiveTab('anggota')} />
                                     <MenuBtn icon="clipboard-edit" label="Absen Manual" active={activeTab === 'manual'} onClick={() => setActiveTab('manual')} />
                                     <MenuBtn icon="qr-code" label="Scan QR" active={activeTab === 'scan'} onClick={() => setActiveTab('scan')} />
+                                    <MenuBtn icon="moon" label="Data Piket" active={activeTab === 'data-piket'} onClick={() => setActiveTab('data-piket')} />
                                     <MenuBtn icon="file-text" label="Laporan" active={activeTab === 'laporan'} onClick={() => setActiveTab('laporan')} />
                                     <MenuBtn icon="grid" label="Rekap Matriks" active={activeTab === 'matriks'} onClick={() => setActiveTab('matriks')} />
                                     <MenuBtn icon="settings" label="Pengaturan" active={activeTab === 'pengaturan'} onClick={() => setActiveTab('pengaturan')} />
+                                </>
+                            ) : user.role === 'piket' ? (
+                                <>
+                                    <MenuBtn icon="layout-dashboard" label="Beranda" active={activeTab === 'beranda'} onClick={() => setActiveTab('beranda')} />
+                                    <MenuBtn icon="moon" label="Absen Piket" active={activeTab === 'absen-piket'} onClick={() => setActiveTab('absen-piket')} />
+                                    <MenuBtn icon="history" label="Rekap Piket" active={activeTab === 'rekap-piket'} onClick={() => setActiveTab('rekap-piket')} />
                                 </>
                             ) : (
                                 <>
@@ -341,9 +349,14 @@
                             {user.role === 'admin' && activeTab === 'anggota' && <AdminAnggota users={usersData} settings={settingsData} />}
                             {user.role === 'admin' && activeTab === 'manual' && <AdminManual users={usersData} settings={settingsData} />}
                             {user.role === 'admin' && activeTab === 'scan' && <AdminScan users={usersData} settings={settingsData} />}
+                            {user.role === 'admin' && activeTab === 'data-piket' && <AdminDataPiket settings={settingsData} />}
                             {user.role === 'admin' && activeTab === 'laporan' && <AdminLaporan settings={settingsData} />}
                             {user.role === 'admin' && activeTab === 'matriks' && <AdminMatriks users={usersData} settings={settingsData} />}
                             {user.role === 'admin' && activeTab === 'pengaturan' && <AdminPengaturan settings={settingsData} />}
+
+                            {user.role === 'piket' && activeTab === 'beranda' && <UserBeranda />}
+                            {user.role === 'piket' && activeTab === 'absen-piket' && <PiketAbsensi user={user} settings={settingsData} />}
+                            {user.role === 'piket' && activeTab === 'rekap-piket' && <PiketRekap user={user} />}
 
                             {user.role === 'user' && activeTab === 'beranda' && <UserBeranda />}
                             {user.role === 'user' && activeTab === 'absensi' && <UserAbsensi user={user} settings={settingsData} users={usersData} />}
@@ -356,9 +369,14 @@
                                     <MobileMenu icon="home" label="Beranda" active={activeTab === 'beranda'} onClick={() => setActiveTab('beranda')} />
                                     <MobileMenu icon="users" label="Anggota" active={activeTab === 'anggota'} onClick={() => setActiveTab('anggota')} />
                                     <MobileMenu icon="qr-code" label="Scan QR" active={activeTab === 'scan'} onClick={() => setActiveTab('scan')} />
-                                    <MobileMenu icon="file-text" label="Laporan" active={activeTab === 'laporan'} onClick={() => setActiveTab('laporan')} />
-                                    <MobileMenu icon="grid" label="Matriks" active={activeTab === 'matriks'} onClick={() => setActiveTab('matriks')} />
+                                    <MobileMenu icon="moon" label="Piket" active={activeTab === 'data-piket'} onClick={() => setActiveTab('data-piket')} />
                                     <MobileMenu icon="settings" label="Pengatur..." active={activeTab === 'pengaturan'} onClick={() => setActiveTab('pengaturan')} />
+                                </>
+                            ) : user.role === 'piket' ? (
+                                <>
+                                    <MobileMenu icon="home" label="Beranda" active={activeTab === 'beranda'} onClick={() => setActiveTab('beranda')} />
+                                    <MobileMenu icon="moon" label="Absen Piket" active={activeTab === 'absen-piket'} onClick={() => setActiveTab('absen-piket')} />
+                                    <MobileMenu icon="history" label="Rekap Piket" active={activeTab === 'rekap-piket'} onClick={() => setActiveTab('rekap-piket')} />
                                 </>
                             ) : (
                                 <>
@@ -431,7 +449,6 @@
         };
 
         const AdminBeranda = () => {
-            // Menggunakan helper getTanggalLokal
             const hariIni = getTanggalLokal();
             const [filterTanggal, setFilterTanggal] = React.useState(hariIni);
             const [filterNama, setFilterNama] = React.useState('');
@@ -465,7 +482,7 @@
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                         <div>
                             <h2 className="text-2xl font-bold text-slate-800">Beranda Admin</h2>
-                            <p className="text-slate-500 text-sm">Pantau kehadiran pegawai pada tanggal tertentu.</p>
+                            <p className="text-slate-500 text-sm">Pantau kehadiran reguler pada tanggal tertentu.</p>
                         </div>
                         <div className="flex gap-2 w-full md:w-auto">
                             <input type="text" placeholder="Cari nama..." value={filterNama} onChange={(e)=>setFilterNama(e.target.value)} className="p-2 border border-slate-200 rounded-xl shadow-sm flex-1 outline-none focus:ring-2 focus:ring-teal-500" />
@@ -562,7 +579,7 @@
             };
 
             const confirmHapusSemua = () => {
-                const usersToDelete = users.filter(u => u.role === 'user');
+                const usersToDelete = users.filter(u => u.role === 'user' || u.role === 'piket');
                 if (usersToDelete.length === 0) {
                     window.showToast("Tidak ada data Pegawai untuk dihapus.", "warning");
                     setDeleteAllModalOpen(false);
@@ -579,7 +596,7 @@
             const downloadTemplate = () => {
                 const wsData = [
                     { NIP: "19800101", Nama: "Budi Santoso", Role: "user", Password: "password123" },
-                    { NIP: "19800102", Nama: "Siti Aminah", Role: "user", Password: "password123" }
+                    { NIP: "19800102", Nama: "Siti Aminah", Role: "piket", Password: "password123" }
                 ];
                 const ws = XLSX.utils.json_to_sheet(wsData);
                 const wb = XLSX.utils.book_new();
@@ -662,7 +679,7 @@
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                         <h2 className="text-2xl font-bold text-slate-800">Manajemen Anggota</h2>
                         <div className="flex flex-wrap gap-2">
-                            <button onClick={() => cetakKartu(users.filter(u => u.role === 'user'))} className="bg-amber-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-amber-600 flex items-center transition shadow-sm">
+                            <button onClick={() => cetakKartu(users.filter(u => u.role !== 'admin'))} className="bg-amber-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-amber-600 flex items-center transition shadow-sm">
                                 <LucideIcon name="printer" className="w-4 h-4 mr-2" /> Cetak Kartu QR
                             </button>
                             <button onClick={() => setDeleteAllModalOpen(true)} className="bg-rose-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-rose-600 flex items-center transition shadow-sm">
@@ -692,8 +709,9 @@
                                     <div>
                                         <label className="text-xs font-medium text-slate-500 mb-1 block">Role</label>
                                         <select value={formData.role} onChange={e=>setFormData({...formData, role: e.target.value})} className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500 bg-white">
-                                            <option value="user">User</option>
+                                            <option value="user">User Reguler</option>
                                             <option value="admin">Admin</option>
+                                            <option value="piket">Piket Malam</option>
                                         </select>
                                     </div>
                                     <div><label className="text-xs font-medium text-slate-500 mb-1 block">Password</label><input type="text" required value={formData.password} onChange={e=>setFormData({...formData, password: e.target.value})} className="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" /></div>
@@ -731,7 +749,7 @@
                                     <LucideIcon name="trash-2" className="w-8 h-8" />
                                 </div>
                                 <h3 className="text-lg font-bold mb-2 text-slate-800">Hapus Semua Pegawai?</h3>
-                                <p className="text-slate-500 text-sm mb-6">Tindakan ini akan menghapus <b>SEMUA</b> data dengan peran 'user'. Data tidak dapat dipulihkan.</p>
+                                <p className="text-slate-500 text-sm mb-6">Tindakan ini akan menghapus <b>SEMUA</b> data dengan peran 'user' dan 'piket'. Data tidak dapat dipulihkan.</p>
                                 <div className="flex justify-center gap-3">
                                     <button onClick={() => setDeleteAllModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-medium hover:bg-slate-200 transition">Batal</button>
                                     <button onClick={confirmHapusSemua} className="px-4 py-2 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-700 shadow-md shadow-rose-200 transition">Hapus Semua!</button>
@@ -750,10 +768,14 @@
                                     <tr key={i} className="border-b hover:bg-slate-50 transition">
                                         <td className="p-4 text-slate-600">{u.nip}</td>
                                         <td className="p-4 font-medium text-slate-800">{u.nama}</td>
-                                        <td className="p-4"><span className={`px-3 py-1 text-xs rounded-full uppercase font-medium ${u.role === 'admin' ? 'bg-teal-100 text-teal-700' : 'bg-slate-100 text-slate-600'}`}>{u.role}</span></td>
+                                        <td className="p-4">
+                                            <span className={`px-3 py-1 text-xs rounded-full uppercase font-medium ${u.role === 'admin' ? 'bg-teal-100 text-teal-700' : (u.role === 'piket' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600')}`}>
+                                                {u.role}
+                                            </span>
+                                        </td>
                                         <td className="p-4 text-center">
                                             <button onClick={() => { setFormData(u); setIsModalOpen(true); }} className="text-teal-500 hover:text-teal-700 mx-2 transition" title="Edit"><LucideIcon name="edit" className="w-4 h-4" /></button>
-                                            {u.role === 'user' && <button onClick={() => cetakKartu([u])} className="text-amber-500 hover:text-amber-600 mx-2 transition" title="Cetak ID Card"><LucideIcon name="printer" className="w-4 h-4" /></button>}
+                                            {u.role !== 'admin' && <button onClick={() => cetakKartu([u])} className="text-amber-500 hover:text-amber-600 mx-2 transition" title="Cetak ID Card"><LucideIcon name="printer" className="w-4 h-4" /></button>}
                                             <button onClick={() => { setDeleteId(u.id); setDeleteModalOpen(true); }} className="text-rose-500 hover:text-rose-700 mx-2 transition" title="Hapus"><LucideIcon name="trash" className="w-4 h-4" /></button>
                                         </td>
                                     </tr>
@@ -766,13 +788,10 @@
         };
 
         const AdminManual = ({ users, settings }) => {
-            // Menggunakan helper getTanggalLokal
             const hariIni = getTanggalLokal();
             const [formData, setFormData] = React.useState({
                 nip: '', tanggal: hariIni, jenis: 'Datang', jam: '', status: 'Hadir', keterangan: ''
             });
-
-            // Custom UI Confirm Modal
             const [confirmLiburModal, setConfirmLiburModal] = React.useState(null);
 
             const laksanakanSimpan = async (dataForm) => {
@@ -867,7 +886,7 @@
                 <div className="space-y-6 max-w-2xl">
                     <div>
                         <h2 className="text-2xl font-bold text-slate-800">Absensi Manual</h2>
-                        <p className="text-slate-500 text-sm">Input absensi manual untuk pegawai yang terkendala perangkat atau jaringan.</p>
+                        <p className="text-slate-500 text-sm">Input absensi manual reguler untuk pegawai yang terkendala perangkat.</p>
                     </div>
 
                     {confirmLiburModal && (
@@ -890,7 +909,7 @@
                                     <label className="block text-sm font-medium mb-1.5 text-slate-600">Pilih Pegawai</label>
                                     <select value={formData.nip} onChange={e=>setFormData({...formData, nip: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500 bg-white" required>
                                         <option value="">-- Pilih Pegawai --</option>
-                                        {users.filter(u => u.role !== 'admin').map(u => (
+                                        {users.filter(u => u.role === 'user').map(u => (
                                             <option key={u.nip} value={u.nip}>{u.nama} ({u.nip})</option>
                                         ))}
                                     </select>
@@ -961,8 +980,6 @@
             const processScan = async (decodedText) => {
                 if (isProcessing.current) return; 
                 isProcessing.current = true; 
-                
-                // Instruksi: Hapus pemanggilan playBeep() di awal, diganti playSuccessSound() di dalam set()
 
                 const currentUsers = usersRef.current;
                 const currentSettings = settingsRef.current;
@@ -972,10 +989,12 @@
                 if (!user) {
                     return triggerPopup('error', 'Gagal!', `NIP ${decodedText} tidak terdaftar!`);
                 }
+                if (user.role === 'piket') {
+                    return triggerPopup('error', 'Ditolak!', `Pegawai ${user.nama} adalah petugas piket malam. Tidak bisa discan di menu reguler.`);
+                }
 
                 const now = new Date();
                 const currentJam = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-                // Menggunakan helper getTanggalLokal
                 const tanggalSekarang = getTanggalLokal(now);
                 const docId = `${tanggalSekarang}_${user.nip}`; 
                 
@@ -1043,7 +1062,7 @@
                     const dataToSave = { tanggal: tanggalSekarang, nip: user.nip, nama: user.nama, datang: existingRecord?.datang || "", pulang: currentJam, status: existingRecord?.status || "Hadir", keterangan: keteranganPulang, jarak: 0 };
 
                     db.collection('absensi').doc(docId).set(dataToSave, { merge: true }).then(() => {
-                        playSuccessSound(); // Memutar audio sukses ketika data absen Pulang berhasil disimpan
+                        playSuccessSound();
                         triggerPopup(isOvertime ? 'warning' : 'success', 'Berhasil Absen Pulang', `${user.nama} - ${currentJam}\n${isOvertime ? keteranganPulang : 'Tepat Waktu'}`);
                     });
                 }
@@ -1163,7 +1182,6 @@
         };
 
         const AdminLaporan = ({ settings }) => {
-            // Menggunakan helper getTanggalLokal
             const hariIni = getTanggalLokal();
             const [tanggalMulai, setTanggalMulai] = React.useState(hariIni);
             const [tanggalAkhir, setTanggalAkhir] = React.useState(hariIni);
@@ -1389,7 +1407,6 @@
         const AdminMatriks = ({ users, settings }) => {
             const getBulanTahunIni = () => {
                 const now = new Date();
-                // Menggunakan helper getTanggalLokal
                 return { start: getTanggalLokal(new Date(now.getFullYear(), now.getMonth(), 1)), end: getTanggalLokal(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
             };
             const defaultRange = getBulanTahunIni();
@@ -1421,12 +1438,12 @@
                 setIsLoading(false);
             };
 
+            // Mengambil semua user yang berperan "user" untuk di-render di matriks reguler
             const pendidikList = users.filter(u => u.role === 'user');
             const dateList = [];
             let curr = new Date(tanggalMulai);
             const end = new Date(tanggalAkhir);
             while(curr <= end) {
-                // Menggunakan helper getTanggalLokal
                 dateList.push(getTanggalLokal(curr));
                 curr.setDate(curr.getDate() + 1);
             }
@@ -1463,7 +1480,7 @@
                                             <h2 style="font-size: 18px; font-weight: bold; margin: 5px 0;">${settings?.sekolah || 'NAMA PUSKESMAS'}</h2>
                                             <p style="font-size: 12px; margin: 0;">${settings?.alamat || '-'}</p>
                                         </div>
-                                        <h3 style="text-align: center; font-size: 14px; margin: 15px 0 5px 0; text-transform: uppercase;">REKAP MATRIKS KEHADIRAN PEGAWAI</h3>
+                                        <h3 style="text-align: center; font-size: 14px; margin: 15px 0 5px 0; text-transform: uppercase;">REKAP MATRIKS KEHADIRAN PEGAWAI REGULER</h3>
                                         <p style="text-align: center; margin: 0 0 10px 0;">Periode: ${tanggalMulai} s/d ${tanggalAkhir}</p>
                                     </td>
                                 </tr>
@@ -1485,7 +1502,6 @@
                             <tbody>
                                 ${pendidikList.map((u, i) => {
                                     let c_H=0, c_HT=0, c_S=0, c_I=0, c_A=0, c_DL=0;
-                                    // Menggunakan helper getTanggalLokal
                                     const todayStr = getTanggalLokal(new Date());
                                     
                                     const colsHtml = dateList.map(d => {
@@ -1540,7 +1556,7 @@
             return (
                 <div className="space-y-6">
                     <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
-                        <h2 className="text-2xl font-bold text-slate-800">Rekap Matriks</h2>
+                        <h2 className="text-2xl font-bold text-slate-800">Rekap Matriks Reguler</h2>
                         <div className="flex flex-wrap items-center gap-3 bg-white p-2 rounded-xl shadow-sm border border-slate-100">
                             <div className="flex items-center gap-2 pl-3">
                                 <span className="text-slate-500 text-sm font-medium">Dari:</span>
@@ -1587,7 +1603,6 @@
                                     <tbody>
                                         {pendidikList.length === 0 ? <tr><td colSpan={dateList.length + 8} className="p-4 text-center">Tarik data untuk memuat.</td></tr> : pendidikList.map((u, i) => {
                                             let c_H=0, c_HT=0, c_S=0, c_I=0, c_A=0, c_DL=0;
-                                            // Menggunakan helper getTanggalLokal
                                             const todayStr = getTanggalLokal(new Date());
                                             return (
                                                 <tr key={i}>
@@ -1640,7 +1655,8 @@
             const [localSettings, setLocalSettings] = React.useState({
                 ...settings,
                 jadwalHarian: settings?.jadwalHarian || { 1: defaultJadwal, 2: defaultJadwal, 3: defaultJadwal, 4: defaultJadwal, 5: defaultJadwal, 6: defaultJadwal },
-                liburKhusus: settings?.liburKhusus || []
+                liburKhusus: settings?.liburKhusus || [],
+                jadwalPiket: settings?.jadwalPiket || { mulaiDatang: "18:00", batasDatang: "20:00", mulaiPulang: "06:00", batasPulang: "08:00" } // TAMBAHAN STATE PIKET
             });
 
             const [newLiburTgl, setNewLiburTgl] = React.useState('');
@@ -1706,7 +1722,7 @@
                             <div className="md:col-span-2"><label className="block text-sm font-medium mb-1.5 text-slate-600">Radius Diizinkan Absen (Meter)</label><input type="number" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.radius} onChange={e=>setLocalSettings({...localSettings, radius: e.target.value})} /></div>
                         </div>
 
-                        <h3 className="font-bold text-teal-900 border-b pb-2 pt-6">Pengaturan Jam Absensi Harian</h3>
+                        <h3 className="font-bold text-teal-900 border-b pb-2 pt-6">Pengaturan Jam Absensi Harian (Reguler)</h3>
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse border border-slate-200 text-sm">
                                 <thead className="bg-slate-50">
@@ -1735,6 +1751,27 @@
                             <p className="text-xs text-amber-600 mt-2">* Kosongkan jam jika hari tersebut diliburkan.</p>
                         </div>
 
+                        {/* TAMBAHAN: PENGATURAN JAM PIKET */}
+                        <h3 className="font-bold text-indigo-900 border-b pb-2 pt-6">Pengaturan Jam Piket Malam</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                            <div>
+                                <label className="block text-sm font-medium mb-1.5 text-slate-600">Mulai Datang Piket</label>
+                                <input type="time" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={localSettings.jadwalPiket?.mulaiDatang || ''} onChange={e=>setLocalSettings({...localSettings, jadwalPiket: {...localSettings.jadwalPiket, mulaiDatang: e.target.value}})} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1.5 text-slate-600">Batas Datang Piket (Lewat = Terlambat)</label>
+                                <input type="time" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={localSettings.jadwalPiket?.batasDatang || ''} onChange={e=>setLocalSettings({...localSettings, jadwalPiket: {...localSettings.jadwalPiket, batasDatang: e.target.value}})} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1.5 text-slate-600">Mulai Pulang Piket</label>
+                                <input type="time" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={localSettings.jadwalPiket?.mulaiPulang || ''} onChange={e=>setLocalSettings({...localSettings, jadwalPiket: {...localSettings.jadwalPiket, mulaiPulang: e.target.value}})} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1.5 text-slate-600">Batas Pulang Piket</label>
+                                <input type="time" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={localSettings.jadwalPiket?.batasPulang || ''} onChange={e=>setLocalSettings({...localSettings, jadwalPiket: {...localSettings.jadwalPiket, batasPulang: e.target.value}})} />
+                            </div>
+                        </div>
+
                         <h3 className="font-bold text-teal-900 border-b pb-2 pt-6">Hari Libur Khusus / Nasional</h3>
                         <div className="flex flex-col md:flex-row gap-3">
                             <input type="date" className="p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={newLiburTgl} onChange={e=>setNewLiburTgl(e.target.value)} />
@@ -1761,7 +1798,6 @@
         }
 
         const UserBeranda = () => {
-             // Menggunakan helper getTanggalLokal
              const hariIni = getTanggalLokal();
              const [filterTanggal, setFilterTanggal] = React.useState(hariIni);
              const [filterNama, setFilterNama] = React.useState('');
@@ -1861,7 +1897,6 @@
             const [adminPass, setAdminPass] = React.useState("");
             const [pendingAction, setPendingAction] = React.useState(null);
 
-            // Menggunakan helper getTanggalLokal
             const hariIni = getTanggalLokal();
             const [recordHariIni, setRecordHariIni] = React.useState(null);
 
@@ -2094,7 +2129,6 @@
         };
 
         const UserRekap = ({ user }) => {
-            // Menggunakan helper getTanggalLokal
             const hariIni = getTanggalLokal();
             const [tanggalMulai, setTanggalMulai] = React.useState(hariIni);
             const [tanggalAkhir, setTanggalAkhir] = React.useState(hariIni);
@@ -2102,7 +2136,6 @@
             const [rekapKu, setRekapKu] = React.useState([]);
             const [isLoading, setIsLoading] = React.useState(false);
 
-            // OPTIMASI: Tarik data manual dengan .get() lalu filter JS
             const fetchRekap = async () => {
                 setIsLoading(true);
                 try {
@@ -2116,7 +2149,6 @@
                         return (!tanggalMulai || a.tanggal >= tanggalMulai) && (!tanggalAkhir || a.tanggal <= tanggalAkhir);
                     });
 
-                    // Kita sort secara manual di browser agar tidak butuh buat Index di Firebase Console
                     const sortedData = dataDifilter.sort((a, b) => new Date(b.tanggal) - new Date(a.tanggal));
                     
                     setRekapKu(sortedData);
@@ -2190,6 +2222,263 @@
                                             </td>
                                             <td className="p-4 text-sm text-slate-500">
                                                 {row.status === 'Hadir' ? (row.keterangan?.includes('Lembur') ? row.keterangan.split(', ').find(k => k.includes('Lembur')) || row.keterangan : 'Pulang Tepat Waktu') : (row.keterangan || '-')}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                 </div>
+            );
+        }
+
+        // ==========================================
+        // KOMPONEN PIKET MALAM (DIPERBARUI DGN VALIDASI JADWAL)
+        // ==========================================
+
+        const PiketAbsensi = ({ user, settings }) => {
+            const [lokasi, setLokasi] = React.useState(null);
+            const [jarak, setJarak] = React.useState(null);
+            const [loading, setLoading] = React.useState(true);
+            const [statusInfo, setStatusInfo] = React.useState('Mencari lokasi GPS Anda...');
+            
+            React.useEffect(() => {
+                if ("geolocation" in navigator) {
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            const userLat = position.coords.latitude;
+                            const userLng = position.coords.longitude;
+                            setLokasi({ lat: userLat, lng: userLng });
+                            
+                            const jrk = hitungJarak(userLat, userLng, settings?.lat, settings?.lng);
+                            setJarak(Math.round(jrk));
+                            setLoading(false);
+                            
+                            if (jrk <= settings?.radius) {
+                                setStatusInfo('Anda berada di dalam area puskesmas. Silakan absen piket.');
+                            } else {
+                                setStatusInfo(`Anda berada di luar area (${Math.round(jrk)}m dari puskesmas).`);
+                            }
+                        },
+                        (error) => { setLoading(false); setStatusInfo('Gagal mendapatkan lokasi GPS.'); },
+                        { enableHighAccuracy: true }
+                    );
+                } else {
+                    setLoading(false); setStatusInfo('Peramban tidak mendukung GPS.');
+                }
+            }, [settings]);
+
+            const isDiArea = jarak !== null && jarak <= settings?.radius;
+
+            const handleMulaiPiket = async () => {
+                const now = new Date();
+                const tanggalSekarang = getTanggalLokal(now);
+                const currentJam = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+
+                // Validasi berdasarkan Jadwal Piket dari Pengaturan Admin
+                const jp = settings?.jadwalPiket || { mulaiDatang: "18:00", batasDatang: "20:00", mulaiPulang: "06:00", batasPulang: "08:00" };
+                
+                // Mencegah klik Mulai Piket terlalu cepat (jika admin mengisi pengaturan dan sedang berada di siang hari setelah jam 12:00)
+                if (jp.mulaiDatang && currentJam < jp.mulaiDatang && currentJam > "12:00") {
+                    return window.showToast(`Belum diizinkan. Absen piket dibuka jam ${jp.mulaiDatang}`, "warning");
+                }
+
+                // Menandai keterlambatan piket
+                let keteranganDatang = "";
+                if (jp.batasDatang && currentJam > jp.batasDatang && currentJam > "12:00") {
+                    keteranganDatang = "Terlambat";
+                }
+
+                try {
+                    const snap = await db.collection('absensi_piket').where('nip', '==', user.nip).get();
+                    const docs = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                    const unfinished = docs.filter(d => d.jamSelesai === "");
+                    
+                    if(unfinished.length > 0) {
+                        return window.showToast("Anda masih memiliki sesi piket yang belum diselesaikan!", "warning");
+                    }
+
+                    await db.collection('absensi_piket').add({
+                        nip: user.nip,
+                        nama: user.nama,
+                        tanggalMulai: tanggalSekarang,
+                        jamMulai: currentJam,
+                        tanggalSelesai: "",
+                        jamSelesai: "",
+                        timestampMulai: now.getTime(),
+                        jarakMulai: jarak || 0,
+                        keterangan: keteranganDatang // Menyimpan Keterangan
+                    });
+                    
+                    playSuccessSound();
+                    window.showToast(`Berhasil Mulai Piket! ${keteranganDatang ? '('+keteranganDatang+')' : ''}`, keteranganDatang ? "warning" : "success");
+                } catch(e) { window.showToast("Error: " + e.message, "error"); }
+            };
+
+            const handleSelesaiPiket = async () => {
+                const now = new Date();
+                const tanggalSekarang = getTanggalLokal(now);
+                const currentJam = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+
+                // Validasi berdasarkan Jadwal Piket
+                const jp = settings?.jadwalPiket || { mulaiDatang: "18:00", batasDatang: "20:00", mulaiPulang: "06:00", batasPulang: "08:00" };
+
+                try {
+                    const snap = await db.collection('absensi_piket').where('nip', '==', user.nip).get();
+                    const docs = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                    const unfinished = docs.filter(d => d.jamSelesai === "").sort((a,b) => b.timestampMulai - a.timestampMulai);
+                    
+                    if(unfinished.length === 0) {
+                        return window.showToast("Tidak ada data Piket aktif yang belum diselesaikan.", "warning");
+                    }
+
+                    // Mencegah pulang sebelum jam pagi yang ditentukan
+                    if (jp.mulaiPulang && currentJam < jp.mulaiPulang && currentJam < "12:00") {
+                        return window.showToast(`Belum diizinkan. Pulang piket dibuka jam ${jp.mulaiPulang}`, "warning");
+                    }
+
+                    // Menambahkan keterangan jika pulang terlambat dari batas pagi
+                    let ketSelesai = unfinished[0].keterangan || "";
+                    if (jp.batasPulang && currentJam > jp.batasPulang && currentJam < "12:00") {
+                        ketSelesai += (ketSelesai ? ", " : "") + "Pulang Lewat Batas";
+                    }
+
+                    const docToUpdate = unfinished[0].id;
+                    await db.collection('absensi_piket').doc(docToUpdate).update({
+                        tanggalSelesai: tanggalSekarang,
+                        jamSelesai: currentJam,
+                        jarakSelesai: jarak || 0,
+                        keterangan: ketSelesai // Memperbarui keterangan
+                    });
+                    
+                    playSuccessSound();
+                    window.showToast("Berhasil Selesai Piket!", "success");
+                } catch(e) { window.showToast("Error: " + e.message, "error"); }
+            };
+
+            return (
+                <div className="space-y-6 max-w-lg mx-auto mt-4 md:mt-10">
+                    <div className="bg-white p-8 rounded-3xl shadow-lg border border-slate-100 text-center relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-2 bg-indigo-500"></div>
+                        <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <LucideIcon name="moon" className="w-10 h-10" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-slate-800 mb-2">Presensi Piket Malam</h2>
+                        
+                        {loading ? ( <div className="flex justify-center my-6"><div className="loader"></div></div> ) : (
+                            <div className={`p-4 rounded-xl text-sm mb-8 ${isDiArea ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                                <p className="font-bold">{statusInfo}</p>
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <button onClick={handleMulaiPiket} disabled={!isDiArea || loading} className={`p-5 rounded-2xl font-bold flex flex-col items-center justify-center transition ${isDiArea ? 'bg-indigo-500 hover:bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-400'}`}>
+                                <LucideIcon name="log-in" className="mb-3 w-6 h-6" /> Mulai Piket
+                            </button>
+                            <button onClick={handleSelesaiPiket} disabled={!isDiArea || loading} className={`p-5 rounded-2xl font-bold flex flex-col items-center justify-center transition ${isDiArea ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-md' : 'bg-slate-100 text-slate-400'}`}>
+                                <LucideIcon name="log-out" className="mb-3 w-6 h-6" /> Selesai Piket
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const PiketRekap = ({ user }) => {
+            const hariIni = getTanggalLokal();
+            const [tanggalMulai, setTanggalMulai] = React.useState(hariIni);
+            const [tanggalAkhir, setTanggalAkhir] = React.useState(hariIni);
+            const [rekapKu, setRekapKu] = React.useState([]);
+
+            const fetchRekap = async () => {
+                const snapshot = await db.collection('absensi_piket').where('nip', '==', user.nip).get();
+                const data = snapshot.docs.map(d => d.data());
+                
+                const filtered = data.filter(a => (!tanggalMulai || a.tanggalMulai >= tanggalMulai) && (!tanggalAkhir || a.tanggalMulai <= tanggalAkhir));
+                setRekapKu(filtered.sort((a, b) => b.timestampMulai - a.timestampMulai));
+            };
+
+            return (
+                 <div className="space-y-6">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <h2 className="text-2xl font-bold text-slate-800">Rekap Piket Saya</h2>
+                        <div className="flex gap-2">
+                            <input type="date" value={tanggalMulai} onChange={(e)=>setTanggalMulai(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                            <input type="date" value={tanggalAkhir} onChange={(e)=>setTanggalAkhir(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                            <button onClick={fetchRekap} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center">Cari</button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-slate-50 text-slate-500 text-sm border-b">
+                                    <tr><th className="p-4 font-medium">Mulai Piket</th><th className="p-4 font-medium">Selesai Piket</th><th className="p-4 font-medium">Keterangan</th></tr>
+                                </thead>
+                                <tbody>
+                                    {rekapKu.length === 0 ? <tr><td colSpan="3" className="p-6 text-center text-slate-500">Klik 'Cari' untuk memuat data.</td></tr> : rekapKu.map((row, i) => (
+                                        <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                            <td className="p-4 text-indigo-600 font-bold">{row.tanggalMulai} - {row.jamMulai}</td>
+                                            <td className="p-4 text-amber-600 font-bold">{row.tanggalSelesai ? `${row.tanggalSelesai} - ${row.jamSelesai}` : 'Belum Selesai'}</td>
+                                            <td className="p-4 text-sm text-slate-500">{row.keterangan || '-'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                 </div>
+            );
+        }
+
+        const AdminDataPiket = () => {
+            const hariIni = getTanggalLokal();
+            const [tanggalMulai, setTanggalMulai] = React.useState(hariIni);
+            const [tanggalAkhir, setTanggalAkhir] = React.useState(hariIni);
+            const [filterNama, setFilterNama] = React.useState('');
+            const [dataPiket, setDataPiket] = React.useState([]);
+
+            const fetchDataPiket = async () => {
+                const snapshot = await db.collection('absensi_piket').get();
+                const semuaData = snapshot.docs.map(d => d.data());
+                
+                const filtered = semuaData.filter(a => {
+                    const inRange = (!tanggalMulai || a.tanggalMulai >= tanggalMulai) && (!tanggalAkhir || a.tanggalMulai <= tanggalAkhir);
+                    const isMatch = a.nama.toLowerCase().includes(filterNama.toLowerCase());
+                    return inRange && isMatch;
+                });
+
+                setDataPiket(filtered.sort((a, b) => b.timestampMulai - a.timestampMulai));
+            };
+
+            return (
+                 <div className="space-y-6">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <h2 className="text-2xl font-bold text-slate-800">Pemantauan Piket Malam</h2>
+                        <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                            <input type="text" placeholder="Cari nama..." value={filterNama} onChange={(e)=>setFilterNama(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm flex-1 outline-none focus:ring-2 focus:ring-indigo-500" />
+                            <input type="date" value={tanggalMulai} onChange={(e)=>setTanggalMulai(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                            <input type="date" value={tanggalAkhir} onChange={(e)=>setTanggalAkhir(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                            <button onClick={fetchDataPiket} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition">Cari</button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-slate-50 text-slate-500 text-sm border-b">
+                                    <tr><th className="p-4 font-medium">Nama Pegawai</th><th className="p-4 font-medium">Mulai Piket</th><th className="p-4 font-medium">Selesai Piket</th><th className="p-4 font-medium">Keterangan</th><th className="p-4 font-medium">Status</th></tr>
+                                </thead>
+                                <tbody>
+                                    {dataPiket.length === 0 ? <tr><td colSpan="5" className="p-6 text-center text-slate-500">Klik 'Cari' untuk memuat data.</td></tr> : dataPiket.map((row, i) => (
+                                        <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                            <td className="p-4 font-bold text-slate-700">{row.nama}</td>
+                                            <td className="p-4 text-indigo-600 font-medium">{row.tanggalMulai} - {row.jamMulai}</td>
+                                            <td className="p-4 text-amber-600 font-medium">{row.tanggalSelesai ? `${row.tanggalSelesai} - ${row.jamSelesai}` : 'Belum Selesai'}</td>
+                                            <td className="p-4 text-sm text-slate-500">{row.keterangan || '-'}</td>
+                                            <td className="p-4">
+                                                {row.jamSelesai ? <span className="px-3 py-1 text-xs font-bold bg-emerald-100 text-emerald-700 rounded-full">Selesai</span> : <span className="px-3 py-1 text-xs font-bold bg-amber-100 text-amber-700 rounded-full">Piket Aktif</span>}
                                             </td>
                                         </tr>
                                     ))}
