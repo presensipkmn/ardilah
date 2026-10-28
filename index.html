@@ -46,7 +46,6 @@
 <body class="bg-slate-50 text-slate-800 antialiased">
     <div id="root"></div>
 
-    <!-- Panggil script menggunakan preset bawaan env & react -->
     <script type="text/babel" data-presets="env,react">
         const firebaseConfig = {
             apiKey: "AIzaSyBRVw0m95OI-C-_myk2JrKq5jzsdC-b1sc",
@@ -69,13 +68,11 @@
             console.error("Firebase error:", error);
         }
 
-        // Global Toast Notification
         window.showToast = (msg, type = 'success') => {
             const event = new CustomEvent('show-toast', { detail: { msg, type } });
             window.dispatchEvent(event);
         };
 
-        // Mengganti playBeep dengan Audio eksternal sesuai instruksi
         const playSuccessSound = () => {
             try {
                 const audio = new Audio('https://www.image2url.com/r2/default/files/1786027679808-a23809b2-f6d7-4575-bbb1-a94a4d42fcbc.mp3');
@@ -94,7 +91,6 @@
             return R * c; 
         }
 
-        // FIX BUG WAKTU LOKAL: Helper untuk mendapatkan tanggal YYYY-MM-DD sesuai zona waktu lokal perangkat
         const getTanggalLokal = (d = new Date()) => {
             const year = d.getFullYear();
             const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -202,13 +198,13 @@
                                 const defaultSettings = {
                                     sekolah: "UPTD Puskesmas Nangaroro", alamat: "Jl. Kesehatan No. 1", kepsek: "Dr. Budi Santoso", nipKepsek: "198001012005011001",
                                     lat: -6.2088, lng: 106.8456, radius: 500, logoUrl: "", jadwalHarian: initJadwal, liburKhusus: [],
-                                    jadwalPiket: { mulaiDatang: "18:00", batasDatang: "20:00", mulaiPulang: "06:00", batasPulang: "08:00" } // TAMBAHAN DEFAULT JADWAL PIKET
+                                    jadwalPiket: { mulaiDatang: "18:00", batasDatang: "20:00", mulaiPulang: "06:00", batasPulang: "08:00" } 
                                 };
                                 db.collection('pengaturan').doc('global').set(defaultSettings);
                             }
                         }, err => {
                             console.error("Settings DB Error:", err);
-                            window.showToast("Gagal mengambil pengaturan (Cek koneksi/kuota Firestore).", "warning");
+                            window.showToast("Gagal mengambil pengaturan.", "warning");
                         });
 
                         unsubUsers = db.collection('users').onSnapshot(snap => {
@@ -225,18 +221,14 @@
                             }
                         }, err => {
                             console.error("Users DB Error:", err);
-                            window.showToast("Gagal mengambil anggota (Cek koneksi/kuota Firestore).", "warning");
+                            window.showToast("Gagal mengambil anggota.", "warning");
                         });
 
                         setTimeout(() => setIsDbLoading(false), 500);
                     } else {
                         auth.signInAnonymously().catch((error) => {
                             console.error("Auth Error:", error);
-                            if (error.code === 'auth/admin-restricted-operation' || error.code === 'auth/operation-not-allowed') {
-                                setAuthError("Fitur Login Anonim (Anonymous) belum diaktifkan di Firebase Console. Silakan aktifkan di menu Authentication -> Sign-in method.");
-                            } else {
-                                setAuthError(error.message);
-                            }
+                            setAuthError(error.message);
                             setIsDbLoading(false);
                         });
                     }
@@ -354,11 +346,11 @@
                             {user.role === 'admin' && activeTab === 'matriks' && <AdminMatriks users={usersData} settings={settingsData} />}
                             {user.role === 'admin' && activeTab === 'pengaturan' && <AdminPengaturan settings={settingsData} />}
 
-                            {user.role === 'piket' && activeTab === 'beranda' && <UserBeranda />}
+                            {user.role === 'piket' && activeTab === 'beranda' && <UserBeranda user={user} />}
                             {user.role === 'piket' && activeTab === 'absen-piket' && <PiketAbsensi user={user} settings={settingsData} />}
                             {user.role === 'piket' && activeTab === 'rekap-piket' && <PiketRekap user={user} />}
 
-                            {user.role === 'user' && activeTab === 'beranda' && <UserBeranda />}
+                            {user.role === 'user' && activeTab === 'beranda' && <UserBeranda user={user} />}
                             {user.role === 'user' && activeTab === 'absensi' && <UserAbsensi user={user} settings={settingsData} users={usersData} />}
                             {user.role === 'user' && activeTab === 'rekap' && <UserRekap user={user} />}
                         </div>
@@ -698,7 +690,6 @@
                         </div>
                     </div>
 
-                    {/* Modal Tambah/Edit */}
                     {isModalOpen && (
                         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                             <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl">
@@ -724,7 +715,6 @@
                         </div>
                     )}
 
-                    {/* Modal Hapus Tunggal */}
                     {deleteModalOpen && (
                         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                             <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl text-center">
@@ -741,7 +731,6 @@
                         </div>
                     )}
 
-                    {/* Modal Hapus Semua */}
                     {deleteAllModalOpen && (
                         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                             <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl text-center border-t-4 border-rose-500">
@@ -1193,12 +1182,23 @@
             const fetchLaporan = async () => {
                 setIsLoading(true);
                 try {
-                    const snapshot = await db.collection('absensi')
-                        .orderBy('tanggal', 'desc')
-                        .limit(2000)
-                        .get();
-                        
-                    const semuaData = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
+                    const snapshotAbsen = await db.collection('absensi').orderBy('tanggal', 'desc').limit(2000).get();
+                    const dataAbsen = snapshotAbsen.docs.map(d => ({id: d.id, ...d.data()}));
+                    
+                    const snapshotPiket = await db.collection('absensi_piket').orderBy('tanggalMulai', 'desc').limit(2000).get();
+                    const dataPiketRaw = snapshotPiket.docs.map(d => d.data());
+                    const dataPiket = dataPiketRaw.map(p => ({
+                        id: p.timestampMulai?.toString() || Math.random().toString(),
+                        tanggal: p.tanggalMulai,
+                        nip: p.nip,
+                        nama: p.nama,
+                        datang: p.jamMulai,
+                        pulang: p.jamSelesai,
+                        status: p.status || 'Hadir',
+                        keterangan: p.keterangan || (p.status ? '' : 'Piket Malam')
+                    }));
+
+                    const semuaData = [...dataAbsen, ...dataPiket];
                     
                     const dataDifilter = semuaData.filter(a => {
                         return (!tanggalMulai || a.tanggal >= tanggalMulai) && (!tanggalAkhir || a.tanggal <= tanggalAkhir);
@@ -1419,12 +1419,22 @@
             const fetchMatriks = async () => {
                 setIsLoading(true);
                 try {
-                    const snapshot = await db.collection('absensi')
-                        .orderBy('tanggal', 'desc')
-                        .limit(2000)
-                        .get();
-                        
-                    const semuaData = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
+                    const snapshotAbsen = await db.collection('absensi').orderBy('tanggal', 'desc').limit(2000).get();
+                    const dataAbsen = snapshotAbsen.docs.map(d => ({id: d.id, ...d.data()}));
+                    
+                    const snapshotPiket = await db.collection('absensi_piket').orderBy('tanggalMulai', 'desc').limit(2000).get();
+                    const dataPiketRaw = snapshotPiket.docs.map(d => d.data());
+                    const dataPiket = dataPiketRaw.map(p => ({
+                        id: p.timestampMulai?.toString() || Math.random().toString(),
+                        tanggal: p.tanggalMulai,
+                        nip: p.nip,
+                        datang: p.jamMulai,
+                        pulang: p.jamSelesai,
+                        status: p.status || 'Hadir',
+                        keterangan: p.keterangan || ''
+                    }));
+
+                    const semuaData = [...dataAbsen, ...dataPiket];
                     
                     const dataDifilter = semuaData.filter(a => {
                         return (!tanggalMulai || a.tanggal >= tanggalMulai) && (!tanggalAkhir || a.tanggal <= tanggalAkhir);
@@ -1438,8 +1448,7 @@
                 setIsLoading(false);
             };
 
-            // Mengambil semua user yang berperan "user" untuk di-render di matriks reguler
-            const pendidikList = users.filter(u => u.role === 'user');
+            const pendidikList = users.filter(u => u.role === 'user' || u.role === 'piket');
             const dateList = [];
             let curr = new Date(tanggalMulai);
             const end = new Date(tanggalAkhir);
@@ -1480,7 +1489,7 @@
                                             <h2 style="font-size: 18px; font-weight: bold; margin: 5px 0;">${settings?.sekolah || 'NAMA PUSKESMAS'}</h2>
                                             <p style="font-size: 12px; margin: 0;">${settings?.alamat || '-'}</p>
                                         </div>
-                                        <h3 style="text-align: center; font-size: 14px; margin: 15px 0 5px 0; text-transform: uppercase;">REKAP MATRIKS KEHADIRAN PEGAWAI REGULER</h3>
+                                        <h3 style="text-align: center; font-size: 14px; margin: 15px 0 5px 0; text-transform: uppercase;">REKAP MATRIKS KEHADIRAN PEGAWAI</h3>
                                         <p style="text-align: center; margin: 0 0 10px 0;">Periode: ${tanggalMulai} s/d ${tanggalAkhir}</p>
                                     </td>
                                 </tr>
@@ -1556,7 +1565,7 @@
             return (
                 <div className="space-y-6">
                     <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
-                        <h2 className="text-2xl font-bold text-slate-800">Rekap Matriks Reguler</h2>
+                        <h2 className="text-2xl font-bold text-slate-800">Rekap Matriks Kehadiran</h2>
                         <div className="flex flex-wrap items-center gap-3 bg-white p-2 rounded-xl shadow-sm border border-slate-100">
                             <div className="flex items-center gap-2 pl-3">
                                 <span className="text-slate-500 text-sm font-medium">Dari:</span>
@@ -1656,7 +1665,7 @@
                 ...settings,
                 jadwalHarian: settings?.jadwalHarian || { 1: defaultJadwal, 2: defaultJadwal, 3: defaultJadwal, 4: defaultJadwal, 5: defaultJadwal, 6: defaultJadwal },
                 liburKhusus: settings?.liburKhusus || [],
-                jadwalPiket: settings?.jadwalPiket || { mulaiDatang: "18:00", batasDatang: "20:00", mulaiPulang: "06:00", batasPulang: "08:00" } // TAMBAHAN STATE PIKET
+                jadwalPiket: settings?.jadwalPiket || { mulaiDatang: "18:00", batasDatang: "20:00", mulaiPulang: "06:00", batasPulang: "08:00" } 
             });
 
             const [newLiburTgl, setNewLiburTgl] = React.useState('');
@@ -1751,7 +1760,6 @@
                             <p className="text-xs text-amber-600 mt-2">* Kosongkan jam jika hari tersebut diliburkan.</p>
                         </div>
 
-                        {/* TAMBAHAN: PENGATURAN JAM PIKET */}
                         <h3 className="font-bold text-indigo-900 border-b pb-2 pt-6">Pengaturan Jam Piket Malam</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
                             <div>
@@ -1797,18 +1805,33 @@
             );
         }
 
-        const UserBeranda = () => {
+        const UserBeranda = ({ user }) => {
              const hariIni = getTanggalLokal();
              const [filterTanggal, setFilterTanggal] = React.useState(hariIni);
-             const [filterNama, setFilterNama] = React.useState('');
              const [absensiTerpilih, setAbsensiTerpilih] = React.useState([]);
              const [isLoading, setIsLoading] = React.useState(false);
 
              const fetchAbsensi = async () => {
                  setIsLoading(true);
                  try {
-                     const snap = await db.collection('absensi').where('tanggal', '==', filterTanggal).get();
-                     setAbsensiTerpilih(snap.docs.map(d => ({id: d.id, ...d.data()})));
+                     if (user.role === 'piket') {
+                         const snap = await db.collection('absensi_piket').where('tanggalMulai', '==', filterTanggal).where('nip', '==', user.nip).get();
+                         const data = snap.docs.map(d => {
+                             const docData = d.data();
+                             return {
+                                 id: d.id,
+                                 nama: docData.nama,
+                                 datang: docData.jamMulai,
+                                 pulang: docData.jamSelesai,
+                                 status: docData.status || (docData.jamSelesai ? 'Hadir' : 'Aktif'),
+                                 keterangan: docData.keterangan
+                             };
+                         });
+                         setAbsensiTerpilih(data);
+                     } else {
+                         const snap = await db.collection('absensi').where('tanggal', '==', filterTanggal).where('nip', '==', user.nip).get();
+                         setAbsensiTerpilih(snap.docs.map(d => ({id: d.id, ...d.data()})));
+                     }
                  } catch (error) {
                      window.showToast("Gagal memuat log absensi: " + error.message, "error");
                  }
@@ -1819,17 +1842,15 @@
                  fetchAbsensi();
              }, [filterTanggal]);
 
-             const dataTerfilter = absensiTerpilih.filter(a => a.nama.toLowerCase().includes(filterNama.toLowerCase()));
-             const dataDatang = dataTerfilter.filter(a => a.datang !== "");
-             const dataPulang = dataTerfilter.filter(a => a.pulang !== "");
+             const dataDatang = absensiTerpilih.filter(a => a.datang !== "");
+             const dataPulang = absensiTerpilih.filter(a => a.pulang !== "");
 
              return (
                  <div className="space-y-6">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <h2 className="text-2xl font-bold text-slate-800">Daftar Kehadiran Rekan Kerja</h2>
+                        <h2 className="text-2xl font-bold text-slate-800">Kehadiran Saya</h2>
                         <div className="flex gap-2 w-full md:w-auto">
-                            <input type="text" placeholder="Cari nama rekan..." value={filterNama} onChange={(e)=>setFilterNama(e.target.value)} className="p-2 border border-slate-200 rounded-xl shadow-sm flex-1 outline-none focus:ring-2 focus:ring-teal-500" />
-                            <input type="date" value={filterTanggal} onChange={(e)=>setFilterTanggal(e.target.value)} className="p-2 border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                            <input type="date" value={filterTanggal} onChange={(e)=>setFilterTanggal(e.target.value)} className="p-2 border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-teal-500 w-full md:w-auto" />
                             <button onClick={fetchAbsensi} disabled={isLoading} className="bg-teal-600 text-white px-3 py-2 rounded-xl text-sm font-medium hover:bg-teal-700 transition flex items-center" title="Muat Ulang / Refresh">
                                 <LucideIcon name="refresh-cw" className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                             </button>
@@ -2050,7 +2071,6 @@
             return (
                 <div className="space-y-6 max-w-lg mx-auto mt-4 md:mt-10">
                     
-                    {/* Modal Bypass Perangkat Ganda */}
                     {pendingAction && (
                         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                             <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl text-center border-t-4 border-amber-500">
@@ -2133,31 +2153,33 @@
             const [tanggalMulai, setTanggalMulai] = React.useState(hariIni);
             const [tanggalAkhir, setTanggalAkhir] = React.useState(hariIni);
             
+            const [rawData, setRawData] = React.useState([]);
             const [rekapKu, setRekapKu] = React.useState([]);
-            const [isLoading, setIsLoading] = React.useState(false);
+            const [isLoading, setIsLoading] = React.useState(true);
 
-            const fetchRekap = async () => {
-                setIsLoading(true);
-                try {
-                    const snapshot = await db.collection('absensi')
-                        .where('nip', '==', user.nip)
-                        .get();
-                    
-                    const semuaData = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
-                    
-                    const dataDifilter = semuaData.filter(a => {
-                        return (!tanggalMulai || a.tanggal >= tanggalMulai) && (!tanggalAkhir || a.tanggal <= tanggalAkhir);
+            React.useEffect(() => {
+                const unsub = db.collection('absensi')
+                    .where('nip', '==', user.nip)
+                    .onSnapshot(snapshot => {
+                        const semuaData = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
+                        setRawData(semuaData);
+                        setIsLoading(false);
+                    }, err => {
+                        console.error("Error Firebase:", err);
+                        window.showToast("Error: " + err.message, "error");
+                        setIsLoading(false);
                     });
+                
+                return () => unsub();
+            }, [user.nip]);
 
-                    const sortedData = dataDifilter.sort((a, b) => new Date(b.tanggal) - new Date(a.tanggal));
-                    
-                    setRekapKu(sortedData);
-                } catch(e) { 
-                    console.error("Error Firebase:", e);
-                    window.showToast("Error: " + e.message, "error"); 
-                }
-                setIsLoading(false);
-            };
+            React.useEffect(() => {
+                const dataDifilter = rawData.filter(a => {
+                    return (!tanggalMulai || a.tanggal >= tanggalMulai) && (!tanggalAkhir || a.tanggal <= tanggalAkhir);
+                });
+                const sortedData = dataDifilter.sort((a, b) => new Date(b.tanggal) - new Date(a.tanggal));
+                setRekapKu(sortedData);
+            }, [rawData, tanggalMulai, tanggalAkhir]);
 
             const dataDatang = rekapKu.filter(a => a.datang !== "");
             const dataPulang = rekapKu.filter(a => a.pulang !== "");
@@ -2171,10 +2193,6 @@
                             <input type="date" value={tanggalMulai} onChange={(e)=>setTanggalMulai(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500 flex-1 md:w-auto" />
                             <span className="text-sm text-slate-500 font-medium pl-2 hidden md:block">Sampai:</span>
                             <input type="date" value={tanggalAkhir} onChange={(e)=>setTanggalAkhir(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500 flex-1 md:w-auto" />
-                            <button onClick={fetchRekap} disabled={isLoading} className="bg-teal-600 text-white px-4 py-2 mr-2 rounded-lg text-sm font-medium hover:bg-teal-700 flex items-center">
-                                {isLoading ? <div className="loader-sm border-white border-t-transparent mr-2"></div> : <LucideIcon name="search" className="w-4 h-4 mr-1" />}
-                                Cari
-                            </button>
                         </div>
                     </div>
 
@@ -2186,7 +2204,7 @@
                                     <tr><th className="p-4 font-medium">Tanggal</th><th className="p-4 font-medium">Jam Datang</th><th className="p-4 font-medium">Status</th><th className="p-4 font-medium">Keterangan</th></tr>
                                 </thead>
                                 <tbody>
-                                    {dataDatang.length === 0 ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Klik 'Cari' untuk memuat data.</td></tr> : dataDatang.map((row, i) => (
+                                    {isLoading ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Memuat data...</td></tr> : (dataDatang.length === 0 ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Tidak ada data.</td></tr> : dataDatang.map((row, i) => (
                                         <tr key={i} className="border-b hover:bg-slate-50 transition">
                                             <td className="p-4 text-slate-700">{row.tanggal}</td>
                                             <td className="p-4 text-emerald-600 font-bold">{row.status !== 'Hadir' ? '-' : row.datang}</td>
@@ -2197,7 +2215,7 @@
                                             </td>
                                             <td className="p-4 text-sm text-slate-500">{row.keterangan || '-'}</td>
                                         </tr>
-                                    ))}
+                                    )))}
                                 </tbody>
                             </table>
                         </div>
@@ -2211,7 +2229,7 @@
                                     <tr><th className="p-4 font-medium">Tanggal</th><th className="p-4 font-medium">Jam Pulang</th><th className="p-4 font-medium">Status</th><th className="p-4 font-medium">Keterangan</th></tr>
                                 </thead>
                                 <tbody>
-                                    {dataPulang.length === 0 ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Klik 'Cari' untuk memuat data.</td></tr> : dataPulang.map((row, i) => (
+                                    {isLoading ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Memuat data...</td></tr> : (dataPulang.length === 0 ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Tidak ada data.</td></tr> : dataPulang.map((row, i) => (
                                         <tr key={i} className="border-b hover:bg-slate-50 transition">
                                             <td className="p-4 text-slate-700">{row.tanggal}</td>
                                             <td className="p-4 text-rose-500 font-bold">{row.pulang}</td>
@@ -2224,7 +2242,7 @@
                                                 {row.status === 'Hadir' ? (row.keterangan?.includes('Lembur') ? row.keterangan.split(', ').find(k => k.includes('Lembur')) || row.keterangan : 'Pulang Tepat Waktu') : (row.keterangan || '-')}
                                             </td>
                                         </tr>
-                                    ))}
+                                    )))}
                                 </tbody>
                             </table>
                         </div>
@@ -2233,16 +2251,15 @@
             );
         }
 
-        // ==========================================
-        // KOMPONEN PIKET MALAM (DIPERBARUI DGN VALIDASI JADWAL)
-        // ==========================================
-
         const PiketAbsensi = ({ user, settings }) => {
             const [lokasi, setLokasi] = React.useState(null);
             const [jarak, setJarak] = React.useState(null);
             const [loading, setLoading] = React.useState(true);
             const [statusInfo, setStatusInfo] = React.useState('Mencari lokasi GPS Anda...');
             
+            const [showIzin, setShowIzin] = React.useState(false);
+            const [izinData, setIzinData] = React.useState({ status: 'Sakit', keterangan: '' });
+
             React.useEffect(() => {
                 if ("geolocation" in navigator) {
                     navigator.geolocation.getCurrentPosition(
@@ -2276,15 +2293,12 @@
                 const tanggalSekarang = getTanggalLokal(now);
                 const currentJam = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
 
-                // Validasi berdasarkan Jadwal Piket dari Pengaturan Admin
                 const jp = settings?.jadwalPiket || { mulaiDatang: "18:00", batasDatang: "20:00", mulaiPulang: "06:00", batasPulang: "08:00" };
                 
-                // Mencegah klik Mulai Piket terlalu cepat (jika admin mengisi pengaturan dan sedang berada di siang hari setelah jam 12:00)
                 if (jp.mulaiDatang && currentJam < jp.mulaiDatang && currentJam > "12:00") {
                     return window.showToast(`Belum diizinkan. Absen piket dibuka jam ${jp.mulaiDatang}`, "warning");
                 }
 
-                // Menandai keterlambatan piket
                 let keteranganDatang = "";
                 if (jp.batasDatang && currentJam > jp.batasDatang && currentJam > "12:00") {
                     keteranganDatang = "Terlambat";
@@ -2308,7 +2322,8 @@
                         jamSelesai: "",
                         timestampMulai: now.getTime(),
                         jarakMulai: jarak || 0,
-                        keterangan: keteranganDatang // Menyimpan Keterangan
+                        status: "Hadir",
+                        keterangan: keteranganDatang 
                     });
                     
                     playSuccessSound();
@@ -2321,7 +2336,6 @@
                 const tanggalSekarang = getTanggalLokal(now);
                 const currentJam = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
 
-                // Validasi berdasarkan Jadwal Piket
                 const jp = settings?.jadwalPiket || { mulaiDatang: "18:00", batasDatang: "20:00", mulaiPulang: "06:00", batasPulang: "08:00" };
 
                 try {
@@ -2333,12 +2347,10 @@
                         return window.showToast("Tidak ada data Piket aktif yang belum diselesaikan.", "warning");
                     }
 
-                    // Mencegah pulang sebelum jam pagi yang ditentukan
                     if (jp.mulaiPulang && currentJam < jp.mulaiPulang && currentJam < "12:00") {
                         return window.showToast(`Belum diizinkan. Pulang piket dibuka jam ${jp.mulaiPulang}`, "warning");
                     }
 
-                    // Menambahkan keterangan jika pulang terlambat dari batas pagi
                     let ketSelesai = unfinished[0].keterangan || "";
                     if (jp.batasPulang && currentJam > jp.batasPulang && currentJam < "12:00") {
                         ketSelesai += (ketSelesai ? ", " : "") + "Pulang Lewat Batas";
@@ -2349,11 +2361,46 @@
                         tanggalSelesai: tanggalSekarang,
                         jamSelesai: currentJam,
                         jarakSelesai: jarak || 0,
-                        keterangan: ketSelesai // Memperbarui keterangan
+                        keterangan: ketSelesai 
                     });
                     
                     playSuccessSound();
                     window.showToast("Berhasil Selesai Piket!", "success");
+                } catch(e) { window.showToast("Error: " + e.message, "error"); }
+            };
+
+            const prosesIzin = async (e) => {
+                e.preventDefault();
+                const now = new Date();
+                const tanggalSekarang = getTanggalLokal(now);
+                const currentJam = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+
+                try {
+                    const snap = await db.collection('absensi_piket').where('nip', '==', user.nip).get();
+                    const docs = snap.docs.map(d => d.data());
+                    const hasAbsenHariIni = docs.find(d => d.tanggalMulai === tanggalSekarang);
+                    
+                    if (hasAbsenHariIni) {
+                        return window.showToast("Anda sudah melakukan absensi/izin untuk hari ini.", "error");
+                    }
+
+                    await db.collection('absensi_piket').add({
+                        nip: user.nip,
+                        nama: user.nama,
+                        tanggalMulai: tanggalSekarang,
+                        jamMulai: currentJam,
+                        tanggalSelesai: tanggalSekarang,
+                        jamSelesai: currentJam,
+                        timestampMulai: now.getTime(),
+                        jarakMulai: 0,
+                        jarakSelesai: 0,
+                        status: izinData.status,
+                        keterangan: izinData.keterangan
+                    });
+                    
+                    window.showToast(`Pengajuan ${izinData.status} berhasil disimpan!`, "success");
+                    setShowIzin(false);
+                    setIzinData({ status: 'Sakit', keterangan: '' });
                 } catch(e) { window.showToast("Error: " + e.message, "error"); }
             };
 
@@ -2380,6 +2427,37 @@
                                 <LucideIcon name="log-out" className="mb-3 w-6 h-6" /> Selesai Piket
                             </button>
                         </div>
+
+                        <div className="mt-6 pt-6 border-t border-slate-100">
+                            {!showIzin ? (
+                                <button onClick={() => setShowIzin(true)} className="w-full p-4 rounded-2xl font-bold flex flex-col items-center justify-center transition bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200 shadow-sm">
+                                    <LucideIcon name="clipboard-edit" className="mb-2 w-6 h-6" />
+                                    Ajukan Izin / Sakit / Dinas Luar
+                                </button>
+                            ) : (
+                                <form onSubmit={prosesIzin} className="bg-slate-50 p-5 rounded-2xl border border-slate-200 text-left space-y-4">
+                                    <h3 className="font-bold text-slate-700 flex items-center">
+                                        <LucideIcon name="file-text" className="w-4 h-4 mr-2 text-amber-500" /> Formulir Pengajuan
+                                    </h3>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Status Kehadiran</label>
+                                        <select value={izinData.status} onChange={e => setIzinData({...izinData, status: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 bg-white text-sm" required>
+                                            <option value="Sakit">Sakit</option>
+                                            <option value="Izin">Izin</option>
+                                            <option value="Dinas Luar">Dinas Luar</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Keterangan / Alasan</label>
+                                        <textarea required value={izinData.keterangan} onChange={e => setIzinData({...izinData, keterangan: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 text-sm" rows="3" placeholder="Tuliskan alasan lengkap..."></textarea>
+                                    </div>
+                                    <div className="flex gap-3 pt-2">
+                                        <button type="button" onClick={() => setShowIzin(false)} className="flex-1 p-2.5 bg-slate-200 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-300 transition">Batal</button>
+                                        <button type="submit" className="flex-1 p-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 shadow-md shadow-amber-200 transition">Kirim Pengajuan</button>
+                                    </div>
+                                </form>
+                            )}
+                        </div>
                     </div>
                 </div>
             );
@@ -2389,24 +2467,38 @@
             const hariIni = getTanggalLokal();
             const [tanggalMulai, setTanggalMulai] = React.useState(hariIni);
             const [tanggalAkhir, setTanggalAkhir] = React.useState(hariIni);
+            
+            const [rawData, setRawData] = React.useState([]);
             const [rekapKu, setRekapKu] = React.useState([]);
+            const [isLoading, setIsLoading] = React.useState(true);
 
-            const fetchRekap = async () => {
-                const snapshot = await db.collection('absensi_piket').where('nip', '==', user.nip).get();
-                const data = snapshot.docs.map(d => d.data());
-                
-                const filtered = data.filter(a => (!tanggalMulai || a.tanggalMulai >= tanggalMulai) && (!tanggalAkhir || a.tanggalMulai <= tanggalAkhir));
+            React.useEffect(() => {
+                const unsub = db.collection('absensi_piket')
+                    .where('nip', '==', user.nip)
+                    .onSnapshot(snapshot => {
+                        const data = snapshot.docs.map(d => d.data());
+                        setRawData(data);
+                        setIsLoading(false);
+                    });
+                return () => unsub();
+            }, [user.nip]);
+
+            React.useEffect(() => {
+                const filtered = rawData.filter(a => {
+                    return (!tanggalMulai || a.tanggalMulai >= tanggalMulai) && (!tanggalAkhir || a.tanggalMulai <= tanggalAkhir);
+                });
                 setRekapKu(filtered.sort((a, b) => b.timestampMulai - a.timestampMulai));
-            };
+            }, [rawData, tanggalMulai, tanggalAkhir]);
 
             return (
                  <div className="space-y-6">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                         <h2 className="text-2xl font-bold text-slate-800">Rekap Piket Saya</h2>
-                        <div className="flex gap-2">
-                            <input type="date" value={tanggalMulai} onChange={(e)=>setTanggalMulai(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
-                            <input type="date" value={tanggalAkhir} onChange={(e)=>setTanggalAkhir(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
-                            <button onClick={fetchRekap} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center">Cari</button>
+                        <div className="flex gap-2 bg-white p-2 rounded-xl shadow-sm border border-slate-100 items-center w-full md:w-auto">
+                            <span className="text-sm text-slate-500 font-medium pl-2 hidden md:block">Dari:</span>
+                            <input type="date" value={tanggalMulai} onChange={(e)=>setTanggalMulai(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 flex-1 md:w-auto" />
+                            <span className="text-sm text-slate-500 font-medium pl-2 hidden md:block">Sampai:</span>
+                            <input type="date" value={tanggalAkhir} onChange={(e)=>setTanggalAkhir(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 flex-1 md:w-auto" />
                         </div>
                     </div>
 
@@ -2414,16 +2506,17 @@
                         <div className="overflow-x-auto">
                             <table className="w-full text-left">
                                 <thead className="bg-slate-50 text-slate-500 text-sm border-b">
-                                    <tr><th className="p-4 font-medium">Mulai Piket</th><th className="p-4 font-medium">Selesai Piket</th><th className="p-4 font-medium">Keterangan</th></tr>
+                                    <tr><th className="p-4 font-medium">Mulai Piket / Izin</th><th className="p-4 font-medium">Selesai Piket</th><th className="p-4 font-medium">Status</th><th className="p-4 font-medium">Keterangan</th></tr>
                                 </thead>
                                 <tbody>
-                                    {rekapKu.length === 0 ? <tr><td colSpan="3" className="p-6 text-center text-slate-500">Klik 'Cari' untuk memuat data.</td></tr> : rekapKu.map((row, i) => (
+                                    {isLoading ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Memuat data...</td></tr> : (rekapKu.length === 0 ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Tidak ada data.</td></tr> : rekapKu.map((row, i) => (
                                         <tr key={i} className="border-b hover:bg-slate-50 transition">
                                             <td className="p-4 text-indigo-600 font-bold">{row.tanggalMulai} - {row.jamMulai}</td>
                                             <td className="p-4 text-amber-600 font-bold">{row.tanggalSelesai ? `${row.tanggalSelesai} - ${row.jamSelesai}` : 'Belum Selesai'}</td>
+                                            <td className="p-4"><span className={`px-3 py-1 text-xs rounded-full font-medium ${row.status && row.status !== 'Hadir' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{row.status || 'Hadir'}</span></td>
                                             <td className="p-4 text-sm text-slate-500">{row.keterangan || '-'}</td>
                                         </tr>
-                                    ))}
+                                    )))}
                                 </tbody>
                             </table>
                         </div>
@@ -2478,7 +2571,7 @@
                                             <td className="p-4 text-amber-600 font-medium">{row.tanggalSelesai ? `${row.tanggalSelesai} - ${row.jamSelesai}` : 'Belum Selesai'}</td>
                                             <td className="p-4 text-sm text-slate-500">{row.keterangan || '-'}</td>
                                             <td className="p-4">
-                                                {row.jamSelesai ? <span className="px-3 py-1 text-xs font-bold bg-emerald-100 text-emerald-700 rounded-full">Selesai</span> : <span className="px-3 py-1 text-xs font-bold bg-amber-100 text-amber-700 rounded-full">Piket Aktif</span>}
+                                                {row.status && row.status !== 'Hadir' ? <span className="px-3 py-1 text-xs font-bold bg-purple-100 text-purple-700 rounded-full">{row.status}</span> : (row.jamSelesai ? <span className="px-3 py-1 text-xs font-bold bg-emerald-100 text-emerald-700 rounded-full">Selesai</span> : <span className="px-3 py-1 text-xs font-bold bg-amber-100 text-amber-700 rounded-full">Piket Aktif</span>)}
                                             </td>
                                         </tr>
                                     ))}
