@@ -9,7 +9,7 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
-    <!-- FIX UTAMA & DEFINITIF: Pin ke versi 7.21.4. Versi ini secara bawaan menggunakan mode 'classic' dan TIDAK AKAN menghasilkan error 'Cannot use import statement' -->
+    <!-- FIX UTAMA & DEFINITIF: Pin ke versi 7.21.4 -->
     <script src="https://unpkg.com/@babel/standalone@7.21.4/babel.min.js"></script>
     
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -514,7 +514,7 @@
                                     </thead>
                                     <tbody>
                                         {dataDatang.length === 0 ? <tr><td colSpan="3" className="p-6 text-center text-slate-500">{isLoading ? 'Memuat data...' : 'Belum ada data.'}</td></tr> : dataDatang.map((row, i) => (
-                                            <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                            <tr key={row.id || i} className="border-b hover:bg-slate-50 transition">
                                                 <td className="p-4 font-medium text-slate-700">{row.nama}</td>
                                                 <td className="p-4 text-emerald-600 font-bold">{row.datang}</td>
                                                 <td className="p-4">
@@ -537,7 +537,7 @@
                                     </thead>
                                     <tbody>
                                         {dataPulang.length === 0 ? <tr><td colSpan="3" className="p-6 text-center text-slate-500">{isLoading ? 'Memuat data...' : 'Belum ada data.'}</td></tr> : dataPulang.map((row, i) => (
-                                            <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                            <tr key={row.id || i} className="border-b hover:bg-slate-50 transition">
                                                 <td className="p-4 font-medium text-slate-700">{row.nama}</td>
                                                 <td className="p-4 text-rose-500 font-bold">{row.pulang}</td>
                                                 <td className="p-4">
@@ -561,25 +561,40 @@
 
         const AdminAnggota = ({ users, settings }) => {
             const [isModalOpen, setIsModalOpen] = React.useState(false);
-            const [formData, setFormData] = React.useState({ nip: '', nama: '', role: 'user', password: '' });
+            const [formData, setFormData] = React.useState({ id: '', nip: '', nama: '', role: 'user', password: '' });
             const [deleteModalOpen, setDeleteModalOpen] = React.useState(false);
             const [deleteId, setDeleteId] = React.useState(null);
             const [deleteAllModalOpen, setDeleteAllModalOpen] = React.useState(false);
 
             const handleSimpanUser = (e) => {
                 e.preventDefault();
-                db.collection('users').doc(formData.nip).set(formData)
+                
+                // FIX BUG RESIDU: Menggunakan nip sebagai doc ID baru.
+                const docIdBaru = String(formData.nip);
+                const dataToSave = {
+                    nip: formData.nip,
+                    nama: formData.nama,
+                    role: formData.role,
+                    password: formData.password
+                };
+
+                db.collection('users').doc(docIdBaru).set(dataToSave)
                   .then(() => {
+                      // Hapus doc lama jika NIP diedit/berubah, agar NIP yang lama tidak menjadi "residu/hantu"
+                      if (formData.id && formData.id !== docIdBaru) {
+                          db.collection('users').doc(formData.id).delete().catch(err => console.error("Gagal menghapus doc lama:", err));
+                      }
+                      
                       setIsModalOpen(false);
                       window.showToast("Berhasil menyimpan pengguna", "success");
-                      setFormData({ nip: '', nama: '', role: 'user', password: '' });
+                      setFormData({ id: '', nip: '', nama: '', role: 'user', password: '' });
                   })
                   .catch(error => window.showToast("Error: " + error.message, "error"));
             };
 
             const confirmHapus = () => {
                 if (deleteId) {
-                    db.collection('users').doc(deleteId).delete()
+                    db.collection('users').doc(String(deleteId)).delete()
                       .then(() => {
                           setDeleteModalOpen(false);
                           setDeleteId(null);
@@ -703,7 +718,7 @@
                                 <LucideIcon name="upload" className="w-4 h-4 mr-2" /> Upload Massal
                                 <input type="file" accept=".xlsx, .xls" onChange={handleUploadExcel} className="hidden" />
                             </label>
-                            <button onClick={() => { setFormData({ nip: '', nama: '', role: 'user', password: '' }); setIsModalOpen(true); }} className="bg-teal-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-teal-700 flex items-center transition shadow-md shadow-teal-200">
+                            <button onClick={() => { setFormData({ id: '', nip: '', nama: '', role: 'user', password: '' }); setIsModalOpen(true); }} className="bg-teal-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-teal-700 flex items-center transition shadow-md shadow-teal-200">
                                 <LucideIcon name="plus" className="w-4 h-4 mr-2" /> Tambah User
                             </button>
                         </div>
@@ -743,7 +758,7 @@
                                 <h3 className="text-lg font-bold mb-2 text-slate-800">Hapus Anggota?</h3>
                                 <p className="text-slate-500 text-sm mb-6">Tindakan ini tidak dapat dibatalkan.</p>
                                 <div className="flex justify-center gap-3">
-                                    <button onClick={() => setDeleteModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-medium hover:bg-slate-200 transition">Batal</button>
+                                    <button onClick={() => { setDeleteModalOpen(false); setDeleteId(null); }} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-medium hover:bg-slate-200 transition">Batal</button>
                                     <button onClick={confirmHapus} className="px-4 py-2 bg-rose-600 text-white rounded-xl font-medium hover:bg-rose-700 transition">Ya, Hapus</button>
                                 </div>
                             </div>
@@ -772,8 +787,9 @@
                                 <tr><th className="p-4 font-medium">NIP</th><th className="p-4 font-medium">Nama Lengkap</th><th className="p-4 font-medium">Role</th><th className="p-4 font-medium text-center">Aksi</th></tr>
                             </thead>
                             <tbody>
-                                {users.map((u, i) => (
-                                    <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                {/* FIX BUG RESIDU: Selalu menggunakan key={u.id} */}
+                                {users.map((u) => (
+                                    <tr key={u.id} className="border-b hover:bg-slate-50 transition">
                                         <td className="p-4 text-slate-600">{u.nip}</td>
                                         <td className="p-4 font-medium text-slate-800">{u.nama}</td>
                                         <td className="p-4">
@@ -917,7 +933,7 @@
                                     <label className="block text-sm font-medium mb-1.5 text-slate-600">Pilih Pegawai</label>
                                     <select value={formData.nip} onChange={e=>setFormData({...formData, nip: e.target.value})} className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500 bg-white" required>
                                         <option value="">-- Pilih Pegawai --</option>
-                                        {users.filter(u => u.role === 'user').map(u => (
+                                        {users.filter(u => u.role === 'user' || u.role === 'piket').map(u => (
                                             <option key={u.nip} value={u.nip}>{u.nama} ({u.nip})</option>
                                         ))}
                                     </select>
@@ -1379,7 +1395,7 @@
                                 </thead>
                                 <tbody>
                                     {dataDatang.length === 0 ? <tr><td colSpan="5" className="p-4 text-center text-slate-500">Tidak ada laporan.</td></tr> : dataDatang.map((row, i) => (
-                                        <tr key={i}>
+                                        <tr key={row.id || i}>
                                             <td className="p-3 border border-slate-300">{row.tanggal}</td>
                                             <td className="p-3 border border-slate-300">{row.nama}</td>
                                             <td className="p-3 border border-slate-300 text-emerald-600 font-medium">{row.datang}</td>
@@ -1405,7 +1421,7 @@
                                 </thead>
                                 <tbody>
                                     {dataPulang.length === 0 ? <tr><td colSpan="5" className="p-4 text-center text-slate-500">Tidak ada laporan.</td></tr> : dataPulang.map((row, i) => (
-                                        <tr key={i}>
+                                        <tr key={row.id || i}>
                                             <td className="p-3 border border-slate-300">{row.tanggal}</td>
                                             <td className="p-3 border border-slate-300">{row.nama}</td>
                                             <td className="p-3 border border-slate-300 text-rose-500 font-medium">{row.pulang}</td>
@@ -1633,7 +1649,7 @@
                                             let c_H=0, c_HT=0, c_S=0, c_I=0, c_A=0, c_DL=0;
                                             const todayStr = getTanggalLokal(new Date());
                                             return (
-                                                <tr key={i}>
+                                                <tr key={u.id}>
                                                     <td className="p-2 border border-slate-300 text-center">{i+1}</td>
                                                     <td className="p-2 border border-slate-300 whitespace-nowrap">{u.nama}</td>
                                                     {dateList.map((d, idx) => {
@@ -1687,6 +1703,18 @@
                 jadwalPiket: settings?.jadwalPiket || { mulaiDatang: "18:00", batasDatang: "20:00", mulaiPulang: "06:00", batasPulang: "08:00" } 
             });
 
+            React.useEffect(() => {
+                if (settings) {
+                    setLocalSettings(prev => ({
+                        ...prev,
+                        ...settings,
+                        jadwalHarian: settings.jadwalHarian || prev.jadwalHarian,
+                        liburKhusus: settings.liburKhusus || prev.liburKhusus,
+                        jadwalPiket: settings.jadwalPiket || prev.jadwalPiket
+                    }));
+                }
+            }, [settings]);
+
             const [newLiburTgl, setNewLiburTgl] = React.useState('');
             const [newLiburKet, setNewLiburKet] = React.useState('');
 
@@ -1736,18 +1764,18 @@
                     <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-5">
                         <h3 className="font-bold text-teal-900 border-b pb-2">Identitas Puskesmas</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">Nama Puskesmas</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.sekolah} onChange={e=>setLocalSettings({...localSettings, sekolah: e.target.value})} /></div>
+                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">Nama Puskesmas</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.sekolah || ''} onChange={e=>setLocalSettings({...localSettings, sekolah: e.target.value})} /></div>
                             <div><label className="block text-sm font-medium mb-1.5 text-slate-600">Upload Logo Kop & Aplikasi</label><input type="file" accept="image/*" onChange={handleUploadLogo} className="w-full p-2 border border-slate-200 rounded-xl text-sm bg-slate-50 outline-none" /></div>
-                            <div className="md:col-span-2"><label className="block text-sm font-medium mb-1.5 text-slate-600">Alamat Puskesmas</label><textarea className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.alamat} onChange={e=>setLocalSettings({...localSettings, alamat: e.target.value})} rows="2"></textarea></div>
-                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">Nama Kepala Puskesmas</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.kepsek} onChange={e=>setLocalSettings({...localSettings, kepsek: e.target.value})} /></div>
-                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">NIP Kepala Puskesmas</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.nipKepsek} onChange={e=>setLocalSettings({...localSettings, nipKepsek: e.target.value})} /></div>
+                            <div className="md:col-span-2"><label className="block text-sm font-medium mb-1.5 text-slate-600">Alamat Puskesmas</label><textarea className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.alamat || ''} onChange={e=>setLocalSettings({...localSettings, alamat: e.target.value})} rows="2"></textarea></div>
+                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">Nama Kepala Puskesmas</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.kepsek || ''} onChange={e=>setLocalSettings({...localSettings, kepsek: e.target.value})} /></div>
+                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">NIP Kepala Puskesmas</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.nipKepsek || ''} onChange={e=>setLocalSettings({...localSettings, nipKepsek: e.target.value})} /></div>
                         </div>
 
                         <h3 className="font-bold text-teal-900 border-b pb-2 pt-6">Pengaturan Lokasi GPS</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">Koordinat GPS Latitude</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.lat} onChange={e=>setLocalSettings({...localSettings, lat: e.target.value})} /></div>
-                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">Koordinat GPS Longitude</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.lng} onChange={e=>setLocalSettings({...localSettings, lng: e.target.value})} /></div>
-                            <div className="md:col-span-2"><label className="block text-sm font-medium mb-1.5 text-slate-600">Radius Diizinkan Absen (Meter)</label><input type="number" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.radius} onChange={e=>setLocalSettings({...localSettings, radius: e.target.value})} /></div>
+                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">Koordinat GPS Latitude</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.lat || ''} onChange={e=>setLocalSettings({...localSettings, lat: e.target.value})} /></div>
+                            <div><label className="block text-sm font-medium mb-1.5 text-slate-600">Koordinat GPS Longitude</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.lng || ''} onChange={e=>setLocalSettings({...localSettings, lng: e.target.value})} /></div>
+                            <div className="md:col-span-2"><label className="block text-sm font-medium mb-1.5 text-slate-600">Radius Diizinkan Absen (Meter)</label><input type="number" className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500" value={localSettings?.radius || ''} onChange={e=>setLocalSettings({...localSettings, radius: e.target.value})} /></div>
                         </div>
 
                         <h3 className="font-bold text-teal-900 border-b pb-2 pt-6">Pengaturan Jam Absensi Harian (Reguler)</h3>
@@ -1886,7 +1914,7 @@
                                     </thead>
                                     <tbody>
                                         {dataDatang.length === 0 ? <tr><td colSpan="3" className="p-6 text-center text-slate-500">{isLoading ? 'Memuat data...' : 'Belum ada aktivitas.'}</td></tr> : dataDatang.map((row, i) => (
-                                            <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                            <tr key={row.id || i} className="border-b hover:bg-slate-50 transition">
                                                 <td className="p-4 font-medium text-slate-800">{row.nama}</td>
                                                 <td className="p-4 text-emerald-600 font-bold">
                                                     {row.status !== 'Hadir' ? <span className="text-amber-600">{row.status}</span> : row.datang}
@@ -1908,7 +1936,7 @@
                                     </thead>
                                     <tbody>
                                         {dataPulang.length === 0 ? <tr><td colSpan="3" className="p-6 text-center text-slate-500">{isLoading ? 'Memuat data...' : 'Belum ada aktivitas.'}</td></tr> : dataPulang.map((row, i) => (
-                                            <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                            <tr key={row.id || i} className="border-b hover:bg-slate-50 transition">
                                                 <td className="p-4 font-medium text-slate-800">{row.nama}</td>
                                                 <td className="p-4 text-rose-500 font-bold">{row.pulang}</td>
                                                 <td className="p-4 text-xs text-slate-500">
@@ -1950,8 +1978,9 @@
             }, [hariIni, user.nip]);
 
             React.useEffect(() => {
+                let watchId;
                 if ("geolocation" in navigator) {
-                    navigator.geolocation.getCurrentPosition(
+                    watchId = navigator.geolocation.watchPosition(
                         (position) => {
                             const userLat = position.coords.latitude;
                             const userLng = position.coords.longitude;
@@ -1968,11 +1997,15 @@
                             }
                         },
                         (error) => { setLoading(false); setStatusInfo('Gagal mendapatkan lokasi GPS. Pastikan Izin Lokasi diaktifkan.'); },
-                        { enableHighAccuracy: true }
+                        { enableHighAccuracy: true, maximumAge: 0 }
                     );
                 } else {
                     setLoading(false); setStatusInfo('Peramban Anda tidak mendukung GPS.');
                 }
+
+                return () => {
+                    if(watchId) navigator.geolocation.clearWatch(watchId);
+                };
             }, [settings]);
 
             const executeAbsen = (jenis) => {
@@ -2224,7 +2257,7 @@
                                 </thead>
                                 <tbody>
                                     {isLoading ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Memuat data...</td></tr> : (dataDatang.length === 0 ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Tidak ada data.</td></tr> : dataDatang.map((row, i) => (
-                                        <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                        <tr key={row.id || i} className="border-b hover:bg-slate-50 transition">
                                             <td className="p-4 text-slate-700">{row.tanggal}</td>
                                             <td className="p-4 text-emerald-600 font-bold">{row.status !== 'Hadir' ? '-' : row.datang}</td>
                                             <td className="p-4">
@@ -2249,7 +2282,7 @@
                                 </thead>
                                 <tbody>
                                     {isLoading ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Memuat data...</td></tr> : (dataPulang.length === 0 ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Tidak ada data.</td></tr> : dataPulang.map((row, i) => (
-                                        <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                        <tr key={row.id || i} className="border-b hover:bg-slate-50 transition">
                                             <td className="p-4 text-slate-700">{row.tanggal}</td>
                                             <td className="p-4 text-rose-500 font-bold">{row.pulang}</td>
                                             <td className="p-4">
@@ -2280,8 +2313,9 @@
             const [izinData, setIzinData] = React.useState({ status: 'Sakit', keterangan: '' });
 
             React.useEffect(() => {
+                let watchId;
                 if ("geolocation" in navigator) {
-                    navigator.geolocation.getCurrentPosition(
+                    watchId = navigator.geolocation.watchPosition(
                         (position) => {
                             const userLat = position.coords.latitude;
                             const userLng = position.coords.longitude;
@@ -2298,10 +2332,14 @@
                             }
                         },
                         (error) => { setLoading(false); setStatusInfo('Gagal mendapatkan lokasi GPS.'); },
-                        { enableHighAccuracy: true }
+                        { enableHighAccuracy: true, maximumAge: 0 }
                     );
                 } else {
                     setLoading(false); setStatusInfo('Peramban tidak mendukung GPS.');
+                }
+                
+                return () => {
+                    if (watchId) navigator.geolocation.clearWatch(watchId);
                 }
             }, [settings]);
 
@@ -2309,6 +2347,11 @@
 
             const handleMulaiPiket = async () => {
                 const now = new Date();
+                
+                if (now.getDay() === 0) {
+                    return window.showToast("Piket malam libur pada hari Minggu.", "warning");
+                }
+
                 const tanggalSekarang = getTanggalLokal(now);
                 const currentJam = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
 
@@ -2495,7 +2538,7 @@
                 const unsub = db.collection('absensi_piket')
                     .where('nip', '==', user.nip)
                     .onSnapshot(snapshot => {
-                        const data = snapshot.docs.map(d => d.data());
+                        const data = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
                         setRawData(data);
                         setIsLoading(false);
                     });
@@ -2529,7 +2572,7 @@
                                 </thead>
                                 <tbody>
                                     {isLoading ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Memuat data...</td></tr> : (rekapKu.length === 0 ? <tr><td colSpan="4" className="p-6 text-center text-slate-500">Tidak ada data.</td></tr> : rekapKu.map((row, i) => (
-                                        <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                        <tr key={row.id || i} className="border-b hover:bg-slate-50 transition">
                                             <td className="p-4 text-indigo-600 font-bold">{row.tanggalMulai} - {row.jamMulai}</td>
                                             <td className="p-4 text-amber-600 font-bold">{row.tanggalSelesai ? `${row.tanggalSelesai} - ${row.jamSelesai}` : 'Belum Selesai'}</td>
                                             <td className="p-4"><span className={`px-3 py-1 text-xs rounded-full font-medium ${row.status && row.status !== 'Hadir' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{row.status || 'Hadir'}</span></td>
@@ -2553,7 +2596,7 @@
 
             const fetchDataPiket = async () => {
                 const snapshot = await db.collection('absensi_piket').get();
-                const semuaData = snapshot.docs.map(d => d.data());
+                const semuaData = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
                 
                 const filtered = semuaData.filter(a => {
                     const inRange = (!tanggalMulai || a.tanggalMulai >= tanggalMulai) && (!tanggalAkhir || a.tanggalMulai <= tanggalAkhir);
@@ -2584,7 +2627,7 @@
                                 </thead>
                                 <tbody>
                                     {dataPiket.length === 0 ? <tr><td colSpan="5" className="p-6 text-center text-slate-500">Klik 'Cari' untuk memuat data.</td></tr> : dataPiket.map((row, i) => (
-                                        <tr key={i} className="border-b hover:bg-slate-50 transition">
+                                        <tr key={row.id || i} className="border-b hover:bg-slate-50 transition">
                                             <td className="p-4 font-bold text-slate-700">{row.nama}</td>
                                             <td className="p-4 text-indigo-600 font-medium">{row.tanggalMulai} - {row.jamMulai}</td>
                                             <td className="p-4 text-amber-600 font-medium">{row.tanggalSelesai ? `${row.tanggalSelesai} - ${row.jamSelesai}` : 'Belum Selesai'}</td>
